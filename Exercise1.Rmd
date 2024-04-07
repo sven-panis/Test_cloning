@@ -5,6 +5,8 @@ date: "2024-04-07"
 output: html_document
 ---
 
+Create fake RT + acc data for 2 conditions (normal, exponential; about 30% errors each) of 1 subject, set-up life table, and plot h(t) and S(t) per condition, together with median RT.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -16,21 +18,22 @@ library(tidyverse)
 Create a fake RT + accuracy data set for 1 subject.
 
 ```{r createFakeData, echo=F}
-set.seed(1234)
-Trials_perCondition = 5
+#set.seed(127456)
+Trials_perCondition = 500
 data <- tibble(pid   = 1,
                trial = sample(1:(Trials_perCondition*2)),
                condition = c(rep(1,Trials_perCondition), rep(2,Trials_perCondition)),
                RT = c(rnorm(Trials_perCondition, 600, 200), rexp(Trials_perCondition, 1/600)),
                acc = rep(sample(c(0,1), size=Trials_perCondition,replace=T, prob=c(.3,.7)),2)) %>% 
-        arrange(trial)
+        arrange(trial) %>%
+        mutate(RT = ifelse(RT<0,0,RT))
 print.data.frame(data)
 ```
 
 Create right-censored observations and discrete RT variable.
 
 ```{r preprocess}
-cutoff <- 500 # censoring time in ms
+cutoff <- 1200 # censoring time in ms
 bin_size <- 100
 data2 <- data %>%
          mutate(censor = 1) %>%
@@ -66,13 +69,51 @@ data_lt <-
   pivot_wider(names_from = event,
               values_from = n) %>% 
   mutate(ev1 = ifelse(is.na(`event = 1`),0,`event = 1`)) %>%
-  mutate(RS = `event = 0` + ev1) %>%
-  mutate(hazard = (ev1 / RS) %>% round(digits = 4))
+  mutate(ev0 = ifelse(is.na(`event = 0`),0,`event = 0`)) %>%
+  mutate(RS = ev0 + ev1) %>%
+  mutate(hazard = (ev1 / RS) %>% round(digits = 3)) %>%
+  mutate(se_haz = sqrt((hazard * (1 - hazard)) / RS) %>% round(digits=3)) %>%
+  group_by(condition) %>%
+  mutate(survival = cumprod(1-hazard),
+         term     = cumsum(hazard / (RS * (1 - hazard))), # ! Greenwood's (1926) approximation
+         se_survival = survival * sqrt(term)) %>%
+  ungroup() 
+
+  #select(condition:period,RS:hazard)
 
 print.data.frame(data_lt)
 ```
 
 
+Calculate conditional accuracy, and add to life table.
+
+Plot hazard, survival, and ca per condition.
+
+```{r}
+library(patchwork)
+p1 <-data_lt %>%
+  ggplot(aes(x=period, color=factor(condition), group=condition)) +
+  geom_line(aes(y=hazard)) +
+  scale_color_viridis_d(NULL, option = "A", end = .55) +
+  scale_x_continuous(breaks = 1:18) +
+  scale_y_continuous(expression(italic(hazard)), limits = c(0, 1)) +
+  theme(legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(color = "grey92"),
+        panel.grid = element_blank())
+  
+p2 <-data_lt %>%
+  ggplot(aes(x=period, color=factor(condition), group=condition)) +
+  geom_line(aes(y=survival)) +
+  scale_color_viridis_d(NULL, option = "A", end = .55) +
+  scale_x_continuous(breaks = 1:18) +
+  scale_y_continuous(expression(italic(survival~probability)), limits = c(0, 1)) +
+  theme(legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(color = "grey92"),
+        panel.grid = element_blank())
+  
+
+p1/p2
+```
 
 
 
