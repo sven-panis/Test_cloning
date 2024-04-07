@@ -13,35 +13,39 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r loadPck, include=F}
 library(tidyverse)
+library(patchwork)
 ```
 
 Create a fake RT + accuracy data set for 1 subject.
 
 ```{r createFakeData, echo=F}
-#set.seed(127456)
-Trials_perCondition = 500
-data <- tibble(pid   = 1,
-               trial = sample(1:(Trials_perCondition*2)),
-               condition = c(rep(1,Trials_perCondition), rep(2,Trials_perCondition)),
-               RT = c(rnorm(Trials_perCondition, 600, 200), rexp(Trials_perCondition, 1/600)),
-               acc = rep(sample(c(0,1), size=Trials_perCondition,replace=T, prob=c(.3,.7)),2)) %>% 
+set.seed(1274)
+Trials_perCondition = 1000
+data <- tibble(
+  pid   = 1,
+  trial = sample(1:(2*Trials_perCondition)),
+  condition = c(rep(1,Trials_perCondition), rep(2,Trials_perCondition)),
+  RT = c(rnorm(Trials_perCondition, 600, 200), rexp(Trials_perCondition, 1/600)),
+  acc = rep(sample(c(0,1), size=Trials_perCondition,replace=T, prob=c(.3,.7)),2)) %>% 
         arrange(trial) %>%
-        mutate(RT = ifelse(RT<0,0,RT))
+        mutate(RT = ifelse(RT<0,0,RT),
+               condition=factor(condition,levels=c(1,2)))
 print.data.frame(data)
 ```
 
 Create right-censored observations and discrete RT variable.
 
 ```{r preprocess}
-cutoff <- 1200 # censoring time in ms
-bin_size <- 100
+cutoff <- 1800 # censoring time in ms
+bin_size <- 200
 data2 <- data %>%
-         mutate(censor = 1) %>%
-         mutate(RT2 = ifelse(RT > cutoff, cutoff, RT)) %>%
-         mutate(censor = ifelse(RT2 == cutoff,0,censor)) %>%
-         mutate(dRT = ceiling(RT2/bin_size))
+         mutate(censor = 1,
+                RT2 = ifelse(RT > cutoff, cutoff, RT),
+                censor = ifelse(RT2 == cutoff,0,censor),
+                dRT = ceiling(RT2/bin_size))
 print.data.frame(data2)
 ```
+
 
 Create person-trial-period data set.
 
@@ -54,7 +58,7 @@ data_ptb <-
   mutate(event = if_else(period == max(period) & censor == 1, 1, 0)) %>% 
   select(-censor) %>% 
   ungroup()
-print.data.frame(data_ptb)
+#print.data.frame(data_ptb)
 ```
 
 Set-up life table.
@@ -68,51 +72,99 @@ data_lt <-
   ungroup() %>% 
   pivot_wider(names_from = event,
               values_from = n) %>% 
-  mutate(ev1 = ifelse(is.na(`event = 1`),0,`event = 1`)) %>%
-  mutate(ev0 = ifelse(is.na(`event = 0`),0,`event = 0`)) %>%
-  mutate(RS = ev0 + ev1) %>%
-  mutate(hazard = (ev1 / RS) %>% round(digits = 3)) %>%
-  mutate(se_haz = sqrt((hazard * (1 - hazard)) / RS) %>% round(digits=3)) %>%
+  mutate(ev1 = ifelse(is.na(`event = 1`),0,`event = 1`), # replace NA with 0
+         ev0 = ifelse(is.na(`event = 0`),0,`event = 0`),
+         RS = ev0 + ev1) %>%
+  mutate(hazard = (ev1 / RS) %>% round(digits = 3)) %>% # estimate hazard
+  mutate(se_haz = sqrt((hazard * (1 - hazard)) / RS) %>% round(digits=3)) %>% # se hazard
   group_by(condition) %>%
-  mutate(survival = cumprod(1-hazard),
-         term     = cumsum(hazard / (RS * (1 - hazard))), # ! Greenwood's (1926) approximation
-         se_survival = survival * sqrt(term)) %>%
-  ungroup() 
+  mutate(survival = cumprod(1-hazard) %>% round(digits = 3), # estimate survival
+         term     = cumsum(hazard / (RS * (1 - hazard))) %>% round(digits = 6), 
+         se_surv = (survival * sqrt(term)) %>% round(digits = 7)) %>% # Greenwood's (1926) approximation
+  ungroup()
 
   #select(condition:period,RS:hazard)
 
 print.data.frame(data_lt)
 ```
 
-
-Calculate conditional accuracy, and add to life table.
-
-Plot hazard, survival, and ca per condition.
+Calculate conditional accuracy.
 
 ```{r}
-library(patchwork)
+ca <- data2 %>%
+  filter(censor==1) %>%
+  group_by(condition,dRT) %>%
+  summarize(ca = mean(acc),
+            n = n()) %>%
+  ungroup() %>%
+  mutate(period = dRT,
+         se_ca = sqrt((ca * (1-ca)) / n)) %>%
+  select(-dRT)
+
+ca
+```
+
+Add conditional accuracy...
+
+```{r}
+lt_full <- data_lt %>%
+    left_join(ca, join_by(condition,period))
+
+print.data.frame(lt_full)
+```
+
+
+Plot hazard, survival, S(t).50, and ca per condition.
+
+```{r}
 p1 <-data_lt %>%
   ggplot(aes(x=period, color=factor(condition), group=condition)) +
   geom_line(aes(y=hazard)) +
-  scale_color_viridis_d(NULL, option = "A", end = .55) +
-  scale_x_continuous(breaks = 1:18) +
-  scale_y_continuous(expression(italic(hazard)), limits = c(0, 1)) +
+  geom_point(aes(y=hazard), size=1) + labs(color="Condition") +
+  geom_linerange(aes(ymin=hazard-se_haz, ymax=hazard+se_haz), show.legend = F)+
+  #scale_color_viridis_d(NULL, option = "A", end=.55) +
+  scale_x_continuous(breaks = 1:(cutoff/bin_size), labels=c(1:(cutoff/bin_size)*bin_size)) +
+  scale_y_continuous(limits = c(0,1)) +
+  labs(x="Time bin endpoint (ms)",
+       y="hazard probability") +
   theme(legend.background = element_rect(fill = "transparent"),
-        legend.key = element_rect(color = "grey92"),
-        panel.grid = element_blank())
-  
+        panel.grid = element_blank(),
+        legend.position = "top")
+
 p2 <-data_lt %>%
   ggplot(aes(x=period, color=factor(condition), group=condition)) +
-  geom_line(aes(y=survival)) +
-  scale_color_viridis_d(NULL, option = "A", end = .55) +
-  scale_x_continuous(breaks = 1:18) +
-  scale_y_continuous(expression(italic(survival~probability)), limits = c(0, 1)) +
+  geom_line(aes(y=survival), show.legend = F) +
+  geom_point(aes(y=survival), size=1, show.legend = F) +
+  geom_linerange(aes(ymin=survival-se_surv, ymax=survival+se_surv), show.legend = F)+
+  #scale_color_viridis_d(NULL, option = "A", end=.55) +
+  scale_x_continuous(breaks = 1:(cutoff/bin_size), labels=c(1:(cutoff/bin_size)*bin_size)) +
+  scale_y_continuous(limits = c(0,1)) +
+  labs(x="Time bin endpoint (ms)",
+       y="survival probability",
+       colour="Condition") +
   theme(legend.background = element_rect(fill = "transparent"),
-        legend.key = element_rect(color = "grey92"),
         panel.grid = element_blank())
-  
 
-p1/p2
+p3 <-lt_full %>%
+  ggplot(aes(x=period, color=factor(condition), group=condition)) +
+  geom_line(aes(y=ca), show.legend = F) +
+  geom_point(aes(y=ca), size=1, show.legend = F) +
+  geom_linerange(aes(ymin=ca-se_ca, ymax=ca+se_ca), show.legend = F)+
+  #scale_color_viridis_d(NULL, option = "A", end=.55) +
+  scale_x_continuous(breaks = 1:(cutoff/bin_size), labels=c(1:(cutoff/bin_size)*bin_size)) +
+  scale_y_continuous(limits = c(0,1)) +
+  labs(x="Time bin endpoint (ms)",
+       y="conditional accuracy",
+       colour="Condition") +
+  theme(legend.background = element_rect(fill = "transparent"),
+        panel.grid = element_blank())
+
+
+
+p1/p2/p3
+
+ggsave("example1.png", width = 8, height = 5, dpi = 600)
+
 ```
 
 
