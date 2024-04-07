@@ -90,7 +90,7 @@ print.data.frame(data_lt)
 
 Calculate conditional accuracy.
 
-```{r}
+```{r ca}
 ca <- data2 %>%
   filter(censor==1) %>%
   group_by(condition,dRT) %>%
@@ -106,7 +106,7 @@ ca
 
 Add conditional accuracy...
 
-```{r}
+```{r fulllifetable}
 lt_full <- data_lt %>%
     left_join(ca, join_by(condition,period))
 
@@ -116,7 +116,7 @@ print.data.frame(lt_full)
 
 Plot hazard, survival, S(t).50, and ca per condition.
 
-```{r}
+```{r plotting}
 p1 <-data_lt %>%
   ggplot(aes(x=period, color=factor(condition), group=condition)) +
   geom_line(aes(y=hazard)) +
