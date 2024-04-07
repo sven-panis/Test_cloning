@@ -9,9 +9,49 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Create RT + accuracy data set, a life table, and a person-trial-period data file.
+```{r loadPck, include=F}
+library(tidyverse)
+```
 
-```{r}
+Create a fake RT + accuracy data set for 1 subject.
 
+```{r createFakeData, echo=F}
+set.seed(1234)
+Trials_perCondition = 5
+data <- tibble(pid   = 1,
+               trial = sample(1:(Trials_perCondition*2)),
+               condition = c(rep(1,Trials_perCondition), rep(2,Trials_perCondition)),
+               RT = c(rnorm(Trials_perCondition, 600, 200), rexp(Trials_perCondition, 1/600)),
+               acc = rep(sample(c(0,1), size=Trials_perCondition,replace=T, prob=c(.3,.7)),2)) %>% 
+        arrange(trial)
+print.data.frame(data)
+```
+
+Transform into a person-trial-period data set.
+
+First, create right-censored observations and discrete RT variable.
+
+```{r preprocess}
+cutoff <- 500 # censoring time in ms
+bin_size <- 100
+data2 <- data %>%
+         mutate(censor = 1) %>%
+         mutate(RT2 = ifelse(RT > cutoff, cutoff, RT)) %>%
+         mutate(censor = ifelse(RT2 == cutoff,0,censor)) %>%
+         mutate(dRT = ceiling(RT2/bin_size))
+```
+
+
+
+
+```{r ptbDataSet}
+teachers_pp <-
+  teachers %>% 
+  uncount(weights = t) %>% #Performs the opposite operation to dplyr::count(), duplicating rows according to a weighting variable (or expression).
+  group_by(id) %>% 
+  mutate(period = 1:n()) %>% 
+  mutate(event = if_else(period == max(period) & censor == 0, 1, 0)) %>% 
+  select(-censor) %>% 
+  ungroup()
 ```
 
