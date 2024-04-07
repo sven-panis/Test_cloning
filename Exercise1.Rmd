@@ -27,9 +27,7 @@ data <- tibble(pid   = 1,
 print.data.frame(data)
 ```
 
-Transform into a person-trial-period data set.
-
-First, create right-censored observations and discrete RT variable.
+Create right-censored observations and discrete RT variable.
 
 ```{r preprocess}
 cutoff <- 500 # censoring time in ms
@@ -39,19 +37,43 @@ data2 <- data %>%
          mutate(RT2 = ifelse(RT > cutoff, cutoff, RT)) %>%
          mutate(censor = ifelse(RT2 == cutoff,0,censor)) %>%
          mutate(dRT = ceiling(RT2/bin_size))
+print.data.frame(data2)
 ```
 
-
-
+Create person-trial-period data set.
 
 ```{r ptbDataSet}
-teachers_pp <-
-  teachers %>% 
-  uncount(weights = t) %>% #Performs the opposite operation to dplyr::count(), duplicating rows according to a weighting variable (or expression).
-  group_by(id) %>% 
+data_ptb <-
+  data2 %>% 
+  uncount(weights = dRT) %>% # duplicate rows according to a weighting variable (or expression).
+  group_by(trial) %>% 
   mutate(period = 1:n()) %>% 
-  mutate(event = if_else(period == max(period) & censor == 0, 1, 0)) %>% 
+  mutate(event = if_else(period == max(period) & censor == 1, 1, 0)) %>% 
   select(-censor) %>% 
   ungroup()
+print.data.frame(data_ptb)
 ```
+
+Set-up life table.
+
+```{r lifetable}
+data_lt <-
+  data_ptb %>% 
+  mutate(event = str_c("event = ", event)) %>%
+  group_by(condition,period) %>% 
+  count(event) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = event,
+              values_from = n) %>% 
+  mutate(ev1 = ifelse(is.na(`event = 1`),0,`event = 1`)) %>%
+  mutate(RS = `event = 0` + ev1) %>%
+  mutate(hazard = (ev1 / RS) %>% round(digits = 4))
+
+print.data.frame(data_lt)
+```
+
+
+
+
+
 
