@@ -107,21 +107,51 @@ ca <- data2 %>%
 ca
 ```
 
-Add conditional accuracy...
+Add conditional accuracy.
 
 ```{r fulllifetable}
 lt_full <- data_lt %>%
     left_join(ca, join_by(condition,period))
 
+row1_cond1 <- tibble(condition=factor(1),period=0,`event = 0` = NA,`event = 1` = NA,ev1 = NA,ev0 = NA,RS = Trials_perCondition,
+                     hazard = NA,se_haz = NA,survival = 1,term = NA,se_surv = 0,ca = NA,n = NA,se_ca = NA)
+row1_cond2 <- tibble(condition=factor(2),period=0,`event = 0` = NA,`event = 1` = NA,ev1 = NA,ev0 = NA,RS = Trials_perCondition,
+                     hazard = NA,se_haz = NA,survival = 1,term = NA,se_surv = 0,ca = NA,n = NA,se_ca = NA)
+                   
+lt_full <- bind_rows(row1_cond1, row1_cond2, lt_full) %>% arrange(condition, period)
+  
 print.data.frame(lt_full)
 ```
 
-Extract median RTs based on survivor functions.
+Extract median RT for each condition, based on survivor functions.
 
 ```{r medianRTs}
+# determine the mth row where smallest S(t) > .5
+cond1_m <- lt_full %>% 
+      filter(condition == 1 & survival > .5) %>% slice(n()) # take last row
+cond2_m <- lt_full %>% 
+      filter(condition == 2 & survival > .5) %>% slice(n()) 
 
+# determine the row for m + 1
+cond1_m1 <- lt_full %>% 
+    filter(condition == 1 & survival < .5) %>% slice(1)
+cond2_m1 <- lt_full %>% 
+    filter(condition == 2 & survival < .5) %>% slice(1)
+
+# pull the value for m
+m_cond1  <- pull(cond1_m, period)
+m_cond2  <- pull(cond2_m, period)
+
+# pull the two survival function values
+surv_cond1_m  <- pull(cond1_m, survival)
+surv_cond1_m1 <- pull(cond1_m1, survival)
+surv_cond2_m  <- pull(cond2_m, survival)
+surv_cond2_m1 <- pull(cond2_m1, survival)
+
+# plug the values into Equation 10.6 (page 338)
+median_cond1 <- m_cond1 + ((surv_cond1_m - .5) / (surv_cond1_m - surv_cond1_m1)) * ((m_cond1 + 1) - m_cond1) 
+median_cond2 <- m_cond2 + ((surv_cond2_m - .5) / (surv_cond2_m - surv_cond2_m1)) * ((m_cond2 + 1) - m_cond2) 
 ```
-
 
 Plot hazard, survival, S(t).50, and ca per condition.
 
@@ -134,8 +164,8 @@ p1 <-data_lt %>%
   #scale_color_viridis_d(NULL, option = "A", end=.55) +
   scale_x_continuous(breaks = 1:(cutoff/bin_size), labels=c(1:(cutoff/bin_size)*bin_size)) +
   scale_y_continuous(limits = c(0,1)) +
-  labs(x="Time bin endpoint (ms)",
-       y="hazard probability") +
+  labs(x="",
+       y="h(t)") +
   theme(legend.background = element_rect(fill = "transparent"),
         panel.grid = element_blank(),
         legend.position = "top")
@@ -146,10 +176,16 @@ p2 <-data_lt %>%
   geom_point(aes(y=survival), size=1, show.legend = F) +
   geom_linerange(aes(ymin=survival-se_surv, ymax=survival+se_surv), show.legend = F)+
   #scale_color_viridis_d(NULL, option = "A", end=.55) +
+  # add medians
+  geom_path(aes(x=period, y=survival, color=factor(condition)),
+            data = tibble(period= c(median_cond1, median_cond1, median_cond2, median_cond2),
+                          survival = c(.5, 0, .5, 0),
+                          condition = c(1,1,2,2)), 
+            linetype = 2, show.legend = F) +
   scale_x_continuous(breaks = 1:(cutoff/bin_size), labels=c(1:(cutoff/bin_size)*bin_size)) +
   scale_y_continuous(limits = c(0,1)) +
-  labs(x="Time bin endpoint (ms)",
-       y="survival probability",
+  labs(x="",
+       y="S(t)",
        colour="Condition") +
   theme(legend.background = element_rect(fill = "transparent"),
         panel.grid = element_blank())
@@ -162,8 +198,8 @@ p3 <-lt_full %>%
   #scale_color_viridis_d(NULL, option = "A", end=.55) +
   scale_x_continuous(breaks = 1:(cutoff/bin_size), labels=c(1:(cutoff/bin_size)*bin_size)) +
   scale_y_continuous(limits = c(0,1)) +
-  labs(x="Time bin endpoint (ms)",
-       y="conditional accuracy",
+  labs(x="Time bin t's endpoint (ms)",
+       y="ca(t)",
        colour="Condition") +
   theme(legend.background = element_rect(fill = "transparent"),
         panel.grid = element_blank())
