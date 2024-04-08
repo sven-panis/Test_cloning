@@ -21,6 +21,8 @@ general packages for data wrangling and visualisation used in various scripts
 
 ```{r}
 install.packages(c("tidyverse", "RColorBrewer", "patchwork", "ggridges"))
+
+install.packages("pracma") # for reshaping a Matrix
 ```
 
 packages for model building in brms.

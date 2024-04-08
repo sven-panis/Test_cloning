@@ -1,11 +1,11 @@
 ---
-title: "Exercise1"
+title: "Exercise2"
 author: "sven panis"
-date: "2024-04-07"
+date: "2024-04-08"
 output: html_document
 ---
-
-Create fake RT + acc data for 2 conditions (normal, exponential; about 30% errors each) of 1 subject, set-up life table, and plot h(t), S(t), and ca(t) per condition, together with median RT.
+Extend Exercise1 to multiple subjects:
+Create fake RT + acc data for x conditions (normal; about 30% errors each) of y subjects, set-up life table, and plot h(t), S(t), and ca(t) per condition and subject, together with median RT.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -14,58 +14,76 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r loadPck, include=F}
 library(tidyverse)
 library(patchwork)
+library(pracma) # for reshaping a matrix; is masking object cross from purrr.... 
 ```
 
-Create a fake RT + accuracy data set for 1 subject.
+Create a fake RT + accuracy data set with x conditions for y subjects.
 
 ```{r createFakeData, echo=T}
-#set.seed(1274)
-Trials_perCondition = 100
+set.seed(1274)
+Tr_pCond = 4 # trials per condition
+N_sub = 2    # number of subjects
+N_cond = 2   # number of conditions per subject
+N_total = N_sub*N_cond*Tr_pCond
 
 data <- tibble(
-  pid   = 1,
-  trial = sample(1:(2*Trials_perCondition)),
-  condition = c(rep(1,Trials_perCondition), rep(2,Trials_perCondition)),
-  RT = c(rnorm(Trials_perCondition, 800, 200), rexp(Trials_perCondition, 1/600)),
-  acc = rep(sample(c(0,1), size=Trials_perCondition,replace=T, prob=c(.3,.7)),2)) %>% 
-        arrange(trial) %>%
-        mutate(RT = ifelse(RT<0,0.00000001,RT),
-               condition=factor(condition,levels=c(1,2)))
+  pid   = rep(1:N_sub,each=N_cond*Tr_pCond),
+  trial = as.integer(Reshape( replicate(N_sub,sample(1:(N_cond*Tr_pCond))),N_total,1)),
+  condition = rep(rep(1:N_cond,each=Tr_pCond), N_sub),
+  RT = as.double(Reshape(replicate(N_sub*N_cond,rnorm(Tr_pCond, 600, 200)),N_total,1)),
+  acc = as.double(Reshape(replicate(N_sub*N_cond,(sample(c(0,1), size=Tr_pCond,replace=T,            
+                                                  prob=c(.3,.7)))),N_total,1))) %>%
+      arrange(pid,trial) %>%
+      mutate(RT = ifelse(RT<0,0.00000001,RT), # instead of filter...
+             condition=factor(condition,levels=c(1:N_cond)))
 
-#print.data.frame(data)
-head(data)
+print.data.frame(data)
 ```
 
-Create right-censored observations and discrete RT variable.
+Nest data within subjects.
 
-```{r preprocess}
-cutoff <- 1100 # censoring time in ms
-bin_size <- 100
+```{r}
+data_nested <- data %>% group_nest(pid)
 
-data2 <- data %>%
-         mutate(censor = 1,
-                RT2 = ifelse(RT > cutoff, cutoff, RT),
-                censor = ifelse(RT2 == cutoff,0,censor),
-                dRT = ceiling(RT2/bin_size))
-
-#print.data.frame(data2)
-head(data2)
+data_nested %>% pull(data) # view dataset per subject
 ```
 
-Create person-trial-period data set.
+Now apply various functions using map...
 
-```{r ptbDataSet}
-data_ptb <-
-  data2 %>% 
-  uncount(weights = dRT) %>% # duplicate rows according to a weighting variable (or expression).
-  group_by(trial) %>% 
-  mutate(period = 1:n()) %>% 
-  mutate(event = if_else(period == max(period) & censor == 1, 1, 0)) %>% 
-  select(-censor) %>% 
-  ungroup()
+Checkout https://modern-rstats.eu/defining-your-own-functions.html#functions-that-take-columns-of-data-as-arguments
 
-#print.data.frame(data_ptb)
-head(data_ptb)
+```{r}
+CreateCensoredData <- function(df, timeout){
+  df %>% mutate(censor = 1,
+                RT2 = ifelse(RT > timeout, timeout, RT),
+                censor = ifelse(RT2 == timeout,0,censor))
+}
+```
+
+```{r}
+data_nested2 <- data_nested %>% 
+                     mutate(Censored = map2(data, 800, CreateCensoredData))
+data_nested2 %>% pull(Censored)
+```
+
+```{r}
+SetUpPersonTrialBin <- function(df, bin_width){
+  df %>% mutate(dRT = ceiling(RT2/bin_width)) %>% 
+         uncount(weights = dRT) %>% 
+         group_by(trial) %>% 
+         mutate(period = 1:n()) %>% 
+         mutate(event = if_else(period == max(period) & censor == 1, 1, 0)) %>% 
+         select(-censor) %>% 
+         ungroup()
+}
+```
+
+```{r}
+data_nested3 <- data_nested2 %>% 
+                     mutate(ptbData = map2(Censored, 100, SetUpPersonTrialBin)) 
+data_nested3 %>% pull(ptbData)
+
+data_unnested <- data_nested3 %>% unnest(ptbData)
 ```
 
 Set-up life table.
