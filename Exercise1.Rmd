@@ -3,6 +3,8 @@ title: "Exercise1"
 author: "sven panis"
 date: "2024-04-07"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 Create fake RT + acc data for 2 conditions (normal, exponential; about 30% errors each) of 1 subject, set-up life table, and plot h(t), S(t), and ca(t) per condition, together with median RT.
