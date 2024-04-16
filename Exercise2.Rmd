@@ -17,7 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r loadPck, include=F}
 library(tidyverse)
 library(patchwork)
-library(pracma) 
+library(pracma) # to Reshape() matrices
 ```
 
 Create a fake RT (normal) + accuracy (about 70%) data set with x conditions for y subjects, and z trials per condition.
@@ -37,10 +37,9 @@ data <- tibble(
   acc = as.double(Reshape(replicate(N_sub*N_cond,(sample(c(0,1), size=Tr_pCond,replace=T,            
                                                   prob=c(.3,.7)))),N_total,1))) %>%
       arrange(pid,trial) %>%
-      mutate(RT = ifelse(RT<0,0.00000001,RT), # instead of filtering to keep all rows
+      mutate(RT = ifelse(RT<0,0.001,RT), # instead of filtering to keep all rows
              condition=factor(condition,levels=c(1:N_cond)))
 
-#print.data.frame(data)
 head(data)
 ```
 
@@ -52,58 +51,58 @@ data_nested <- data %>% group_nest(pid)
 
 Now define and apply various functions using map and map2, to set-up life tables and create plots showing the descriptive functions of discrete time.
 
-Checkout 
+Checkout these websites:
 https://modern-rstats.eu/functional-programming.html#functional-programming-and-plotting
-
 https://dcl-prog.stanford.edu/purrr-basics.html#extra-arguments
 
-
 ```{r funcDefineCensoring_dRT}
-DefineCensoring_dRT <- function(df, timeout, bin_width){
-  df %>% mutate(censor = 1,
+define_censoring_dRT <- function(df, timeout, bin_width){
+  df %>% mutate(right_censored = 0,
                 RT2 = ifelse(RT > timeout, timeout, RT),
-                censor = ifelse(RT2 == timeout,0,censor),
-                dRT = ceiling(RT2/bin_width))
+                right_censored = ifelse(RT2 == timeout,1,right_censored),
+                dRT = ceiling(RT2/bin_width),
+                cens_time = timeout, bin_width = bin_width)
 }
 ```
 
 ```{r funcSetUpPTB}
-SetUpPersonTrialBin <- function(df){
+setup_person_trial_bin <- function(df){
   df %>% uncount(weights = dRT) %>% 
          group_by(trial) %>% 
          mutate(period = 1:n()) %>% 
-         mutate(event = if_else(period == max(period) & censor == 1, 1, 0)) %>% 
+         mutate(event = if_else(period == max(period) & right_censored == 0, 1, 0)) %>% 
          ungroup()
 }
 ```
 
 ```{r funcSetUpLifeTable}
-SetUpLifeTable <- function(ptb){
-  ptb %>% mutate(event = str_c("event = ", event)) %>%
+setup_lifetable <- function(ptb){
+  ptb %>% mutate(event = str_c("event", event)) %>%
           group_by(condition,period) %>% 
           count(event) %>% 
           ungroup() %>% 
           pivot_wider(names_from = event,
                       values_from = n) %>% 
-          mutate(ev1 = ifelse(is.na(`event = 1`),0,`event = 1`), # replace NA with 0
-                 ev0 = ifelse(is.na(`event = 0`),0,`event = 0`),
-                 RS = ev0 + ev1) %>% # define the risk set
-          mutate(hazard = (ev1 / RS) %>% round(digits = 3)) %>% # calculate hazard estimate
-          mutate(se_haz = sqrt((hazard * (1 - hazard)) / RS) %>% round(digits=3)) %>% # se hazard
+          mutate(event0 = ifelse(is.na(event0),0,event0), # replace NA with 0
+                 event1 = ifelse(is.na(event1),0,event1),
+                 risk_set = event0 + event1) %>% # define the risk set
+          mutate(hazard = (event1 / risk_set) %>% round(digits = 3)) %>% # calculate hazard estimate
+          mutate(se_haz = sqrt((hazard * (1 - hazard)) / risk_set) %>% round(digits=3)) %>% # se hazard
           group_by(condition) %>%
           mutate(survival = cumprod(1-hazard) %>% round(digits = 3), # calculate survival estimate
-                 term     = cumsum(hazard / (RS * (1 - hazard))) %>% round(digits = 6), 
+                 term     = cumsum(hazard / (risk_set * (1 - hazard))) %>% round(digits = 6), 
                  se_surv = (survival * sqrt(term)) %>% round(digits = 7)) %>% # Greenwood's (1926) approximation
           ungroup()
 }
 ```
 
 ```{r funcCalcConditionalAccuracy}
-CalcConditionalAccuracy <- function(df){
-  df %>% filter(censor==1) %>%
-         group_by(condition,dRT) %>%
+calc_conditionalaccuracy <- function(df){
+  df %>% filter(right_censored==0) %>%
+         group_by(condition,dRT,cens_time,bin_width) %>%
          summarize(ca = mean(acc),
-                   n = n()) %>%
+                   n = n(),
+                   .groups = 'drop') %>%
          ungroup() %>%
          mutate(period = dRT,
                 se_ca = sqrt((ca * (1-ca)) / n)) %>%
@@ -112,19 +111,50 @@ CalcConditionalAccuracy <- function(df){
 ```
 
 ```{r funcJoin}
-JoinLifeTableWithCA <- function(df1,df2){df1 %>% left_join(df2, join_by(condition,period))}
+join_lifetable_ca <- function(df1,df2){df1 %>% left_join(df2, join_by(condition,period))}
+```
+
+```{r funcExtractMedian}
+extract_median_period <- function(df){
+  above_pct50 <- df %>% 
+      group_by(condition) %>%
+      filter(survival > .5) %>% 
+      slice(n()) # take last row
+  below_pct50 <- df %>% 
+      group_by(condition) %>%
+      filter(survival < .5) %>% 
+      slice(1) # take first row
+  # pull period above
+  period_above <- pull(above_pct50, period)
+  # pull survivor function values
+  survival_above <- pull(above_pct50, survival)
+  survival_below <- pull(below_pct50, survival)
+  # estimate median by interpolation
+  median_period <- period_above+((survival_above-.5)/(survival_above-survival_below))*((period_above+1)-period_above)
+}
 ```
 
 ```{r funcMakePlots}
-PlotsEHA <- function(df,subj){
+plot_eha <- function(df,subj){
   library(patchwork)
+  cutoff <- df %>% pull(cens_time) %>% max(na.rm=T)
+  binsize <- df %>% pull(bin_width) %>% max(na.rm=T)
+  median_period <- extract_median_period(df)
+  n_conditions <- nlevels(df$condition)
+  data_median <- c()
+  for(i in 1:n_conditions){
+    data_median <- append(data_median, c(median_period[i], median_period[i]))
+  }
+  data_medians <- tibble(period= data_median,
+                         survival = rep(c(.5, 0),n_conditions),
+                         condition = rep(1:n_conditions, each=2))
+  
 p1 <- df %>% ggplot(aes(x=period, color=condition, group=condition)) +
   geom_line(aes(y=hazard)) +
   geom_point(aes(y=hazard), size=1) + labs(color="Condition") +
   geom_linerange(aes(ymin=hazard-se_haz, ymax=hazard+se_haz), show.legend = F) +
-  #scale_color_viridis_d(NULL, option = "A", end=.55) +
-  #scale_x_continuous(breaks = c(0,1:(cutoff/bin_size)), labels=c(0,1:(cutoff/bin_size)*bin_size),
-  #                   limits = c(0,cutoff/bin_size)) +
+  scale_x_continuous(breaks = c(0,1:(cutoff/binsize)), labels=c(0,1:(cutoff/binsize)*binsize),
+                     limits = c(0,cutoff/binsize)) +
   scale_y_continuous(limits = c(0,1)) +
   labs(x="", y="h(t)", title = paste("Subject ", subj)) +
   theme(legend.background = element_rect(fill = "transparent"),
@@ -136,15 +166,12 @@ p2 <-df %>%
   geom_line(aes(y=survival), show.legend = F) +
   geom_point(aes(y=survival), size=1, show.legend = F) +
   geom_linerange(aes(ymin=survival-se_surv, ymax=survival+se_surv), show.legend = F) +
-  #scale_color_viridis_d(NULL, option = "A", end=.55) +
   # add medians
-  #geom_path(aes(x=period, y=survival, color=factor(condition)),
-  #          data = tibble(period= c(median_cond1, median_cond1, median_cond2, median_cond2),
-  #                        survival = c(.5, 0, .5, 0),
-  #                        condition = c(1,1,2,2)), 
-  #          linetype = 3, show.legend = F) +
-  #scale_x_continuous(breaks = c(0,1:(cutoff/bin_size)), labels=c(0,1:(cutoff/bin_size)*bin_size),
-  #                   limits=c(0,cutoff/bin_size)) +
+  geom_path(aes(x=period, y=survival, color=factor(condition)),
+            data = data_medians, 
+            linetype = 3, show.legend = F) +
+  scale_x_continuous(breaks = c(0,1:(cutoff/binsize)), labels=c(0,1:(cutoff/binsize)*binsize),
+                     limits=c(0,cutoff/binsize)) +
   scale_y_continuous(limits = c(0,1)) +
   labs(x="", y="S(t)",
        colour="Condition") +
@@ -155,9 +182,8 @@ p3 <-df %>%
   geom_line(aes(y=ca), show.legend = F) +
   geom_point(aes(y=ca), size=1, show.legend = F) +
   geom_linerange(aes(ymin=ca-se_ca, ymax=ca+se_ca), show.legend = F) +
-  #scale_color_viridis_d(NULL, option = "A", end=.55) +
-  #scale_x_continuous(breaks = c(0,1:(cutoff/bin_size)), labels=c(0,1:(cutoff/bin_size)*bin_size),
-  #                   limits=c(0,cutoff/bin_size)) +
+  scale_x_continuous(breaks = c(0,1:(cutoff/binsize)), labels=c(0,1:(cutoff/binsize)*binsize),
+                     limits=c(0,cutoff/binsize)) +
   scale_y_continuous(limits = c(0,1)) +
   labs(x="Time bin t's endpoint (ms)", y="ca(t)",
        colour="Condition") +
@@ -171,12 +197,12 @@ Apply the functions using map and map2 to create the life tables and plots.
 
 ```{r}
 data_final <- data_nested %>% 
-                     mutate(censored  = map(data, DefineCensoring_dRT, 800, 100)) %>%             # user input: censoring time, and bin width
-                     mutate(ptbData   = map(censored, SetUpPersonTrialBin)) %>%                   # create person-trial-bin dataset
-                     mutate(lifetable = map(ptbData, SetUpLifeTable)) %>%                         # create life tables without ca
-                     mutate(condacc   = map(censored, CalcConditionalAccuracy)) %>%               # calculate ca
-                     mutate(lifetableWithCA = map2(lifetable, condacc, JoinLifeTableWithCA)) %>%  # create life tables with ca
-                     mutate(plot      = map2(.x = lifetableWithCA, .y = pid, PlotsEHA))           # create plots of info in life tables
+                     mutate(censored  = map(data, define_censoring_dRT, 800, 100)) %>%       # user input: censoring time, and bin width
+                     mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%           # create person-trial-bin dataset
+                     mutate(lifetable = map(ptb_data, setup_lifetable)) %>%                  # create life tables without ca
+                     mutate(condacc   = map(censored, calc_conditionalaccuracy)) %>%         # calculate ca
+                     mutate(lifetable_ca = map2(lifetable, condacc, join_lifetable_ca)) %>%  # create life tables with ca
+                     mutate(plot      = map2(.x = lifetable_ca, .y = pid, plot_eha))         # create plots of info in life tables
 ```
 
 Now you can extract info as required.
@@ -186,61 +212,50 @@ Now you can extract info as required.
 data_final %>% pull(lifetable)
 
 # create file for Bayesian regression modeling:
-data_final %>% unnest(ptbData)
+data_final %>% unnest(ptb_data)
 
 # view original data for subject 1:
 data_final[[2]][[1]]
 
 # view person-trial-bin data set for subject 1:
 data_final[[4]][[1]] 
+
+# view lifetable for subject 1
+data_final[[6]][[1]]
 ```
 
 And you can save each plot.
 
 ```{r}
 # save as pdf
-map2(paste0("figure_for_subject", data_final$pid, ".pdf"), data_final$plot, ggsave)
+map2(paste0("figures/figure_for_subject", data_final$pid, ".pdf"), data_final$plot, ggsave)
 
 # save as png
-map2(paste0("figure_for_subject", data_final$pid, ".png"), data_final$plot, ggsave, width = 8, height = 5, dpi = 600)
+map2(paste0("figures/figure_for_subject", data_final$pid, ".png"), data_final$plot, ggsave, width = 8, height = 5, dpi = 600)
 ```
 
+Make a nice life table for condition 1 of subject 1, and include row for time zero.
 
+```{r}
+flextable::flextable(data_final[[7]][[1]] %>% filter(condition==1) 
+    %>% select(period,risk_set,hazard,se_haz,survival,se_surv,ca, se_ca))
+```
 
+Extract file for modeling hazard.
 
+```{r}
+input_modeling_hazard <- data_final %>% 
+                        select(pid, ptb_data) %>%  unnest(ptb_data) %>%
+                        select(pid,trial,condition,period,event)
+```
 
+Extract file for modeling ca(t).
 
-Still to do: Create function to Extract median RT for each condition, based on survivor functions.
-
-```{r medianRTs}
-# determine the mth row where smallest S(t) > .5
-# cond1_m <- lt_full %>% 
-#       filter(condition == 1 & survival > .5) %>% slice(n()) # take last row
-# cond2_m <- lt_full %>% 
-#       filter(condition == 2 & survival > .5) %>% slice(n()) 
-# 
-# # determine the row for m + 1
-# cond1_m1 <- lt_full %>% 
-#     filter(condition == 1 & survival < .5) %>% slice(1)
-# cond2_m1 <- lt_full %>% 
-#     filter(condition == 2 & survival < .5) %>% slice(1)
-# 
-# # pull the value for m
-# m_cond1  <- pull(cond1_m, period)
-# m_cond2  <- pull(cond2_m, period)
-# 
-# # pull the two survival function values
-# surv_cond1_m  <- pull(cond1_m, survival)
-# surv_cond1_m1 <- pull(cond1_m1, survival)
-# surv_cond2_m  <- pull(cond2_m, survival)
-# surv_cond2_m1 <- pull(cond2_m1, survival)
-# 
-# # plug the values into Equation 10.6 (page 338)
-# median_cond1 <- m_cond1 + ((surv_cond1_m - .5) / (surv_cond1_m - surv_cond1_m1)) * ((m_cond1 + 1) - m_cond1) 
-# median_cond2 <- m_cond2 + ((surv_cond2_m - .5) / (surv_cond2_m - surv_cond2_m1)) * ((m_cond2 + 1) - m_cond2) 
-# # median RTs
-# median_cond1*bin_size
-# median_cond2*bin_size
+```{r}
+input_ca_modeling <- data_final %>%
+                    select(pid, censored) %>% unnest(censored) %>%
+                    filter(right_censored == 0) %>% # only keep uncensored trials
+                    select(pid, trial, condition, acc, dRT)
 ```
 
 Still to do: make and save nice tables of each life table including a row for time 0.

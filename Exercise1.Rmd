@@ -95,7 +95,7 @@ Calculate conditional accuracy.
 ```{r ca, message=F}
 ca <- data2 %>%
   filter(right_censored==0) %>%
-  group_by(condition,dRT) %>%
+  group_by(condition,dRT,cens_time,bin_width) %>%
   summarize(ca = mean(acc),
             n = n()) %>%
   ungroup() %>%
