@@ -14,18 +14,18 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r loadPck, include=F}
-library(tidyverse)
-library(patchwork)
+library(tidyverse) # data wrangling functions
+library(patchwork) # combine figures
 ```
 
 Create a fake RT + accuracy data set for 1 subject.
 
 ```{r createFakeData, echo=T}
-#set.seed(1274)
+set.seed(1274)
 Trials_perCondition = 100
 
 data <- tibble(
-  pid   = 1,
+  pid   = 1, # person ID
   trial = sample(1:(2*Trials_perCondition)),
   condition = c(rep(1,Trials_perCondition), rep(2,Trials_perCondition)),
   RT = c(rnorm(Trials_perCondition, 800, 200), rexp(Trials_perCondition, 1/600)),
@@ -33,8 +33,6 @@ data <- tibble(
         arrange(trial) %>%
         mutate(RT = ifelse(RT<0,0.00000001,RT),
                condition=factor(condition,levels=c(1,2)))
-
-#print.data.frame(data)
 head(data)
 ```
 
@@ -45,12 +43,11 @@ cutoff <- 1100 # censoring time in ms
 bin_size <- 100
 
 data2 <- data %>%
-         mutate(censor = 1,
+         mutate(right_censored = 0,
                 RT2 = ifelse(RT > cutoff, cutoff, RT),
-                censor = ifelse(RT2 == cutoff,0,censor),
-                dRT = ceiling(RT2/bin_size))
-
-#print.data.frame(data2)
+                right_censored = ifelse(RT2 == cutoff,1,right_censored),
+                dRT = ceiling(RT2/bin_size),
+                cens_time = cutoff, bin_width = bin_size) # save for plotting
 head(data2)
 ```
 
@@ -62,11 +59,9 @@ data_ptb <-
   uncount(weights = dRT) %>% # duplicate rows according to a weighting variable (or expression).
   group_by(trial) %>% 
   mutate(period = 1:n()) %>% 
-  mutate(event = if_else(period == max(period) & censor == 1, 1, 0)) %>% 
-  select(-censor) %>% 
+  mutate(event = if_else(period == max(period) & right_censored == 0, 1, 0)) %>% 
   ungroup()
 
-#print.data.frame(data_ptb)
 head(data_ptb)
 ```
 
@@ -75,24 +70,23 @@ Set-up life table.
 ```{r lifetable}
 data_lt <-
   data_ptb %>% 
-  mutate(event = str_c("event = ", event)) %>%
+  mutate(event = str_c("event", event)) %>%
   group_by(condition,period) %>% 
   count(event) %>% 
   ungroup() %>% 
   pivot_wider(names_from = event,
               values_from = n) %>% 
-  mutate(ev1 = ifelse(is.na(`event = 1`),0,`event = 1`), # replace NA with 0
-         ev0 = ifelse(is.na(`event = 0`),0,`event = 0`),
-         RS = ev0 + ev1) %>%
-  mutate(hazard = (ev1 / RS) %>% round(digits = 3)) %>% # estimate hazard
-  mutate(se_haz = sqrt((hazard * (1 - hazard)) / RS) %>% round(digits=3)) %>% # se hazard
+  mutate(ev0 = ifelse(is.na(event0),0,event0), # replace NA with 0
+         ev1 = ifelse(is.na(event1),0,event1),
+         risk_set = ev0 + ev1) %>%
+  mutate(hazard = (ev1 / risk_set) %>% round(digits = 3)) %>% # estimate hazard
+  mutate(se_haz = sqrt((hazard * (1 - hazard)) / risk_set) %>% round(digits=3)) %>% # se hazard
   group_by(condition) %>%
   mutate(survival = cumprod(1-hazard) %>% round(digits = 3), # estimate survival
-         term     = cumsum(hazard / (RS * (1 - hazard))) %>% round(digits = 6), 
+         term     = cumsum(hazard / (risk_set * (1 - hazard))) %>% round(digits = 6), 
          se_surv = (survival * sqrt(term)) %>% round(digits = 7)) %>% # Greenwood's (1926) approximation
   ungroup()
 
-#print.data.frame(data_lt)
 head(data_lt)
 ```
 
@@ -100,7 +94,7 @@ Calculate conditional accuracy.
 
 ```{r ca, message=F}
 ca <- data2 %>%
-  filter(censor==1) %>%
+  filter(right_censored==0) %>%
   group_by(condition,dRT) %>%
   summarize(ca = mean(acc),
             n = n()) %>%
@@ -118,62 +112,54 @@ Add conditional accuracy, and optionally the row for time 0 in the lifetables.
 lt_full <- data_lt %>%
     left_join(ca, join_by(condition,period))
 
-row0_cond1 <- tibble(condition=factor(1),period=0.0,`event = 0` = NA,`event = 1` =NA, ev1 = NA,ev0 = NA,
-                     RS = Trials_perCondition,hazard = NA,se_haz = NA,survival = 1,
+row0_cond1 <- tibble(condition=factor(1),period=0,event0 = NA,event1 =NA, ev0 = NA,ev1 = NA,
+                     risk_set = Trials_perCondition,hazard = NA,se_haz = NA,survival = 1,
                      term = NA,se_surv = 0,ca = NA,n = NA,se_ca = NA)
-row0_cond2 <- tibble(condition=factor(2),period=0.0,`event = 0` = NA,`event = 1` = NA,ev1 = NA,ev0 = NA,
-                     RS = Trials_perCondition,hazard = NA,se_haz = NA,survival = 1,
+row0_cond2 <- tibble(condition=factor(2),period=0.0,event0 = NA,event1 = NA,ev0 = NA,ev1 = NA,
+                     risk_set = Trials_perCondition,hazard = NA,se_haz = NA,survival = 1,
                      term = NA,se_surv = 0,ca = NA,n = NA,se_ca = NA)
                    
 lt_full <- bind_rows(row0_cond1, row0_cond2, lt_full) %>% arrange(condition, period)
   
-#print.data.frame(lt_full)
 head(lt_full)
 ```
 
 Extract median RT for each condition, based on survivor functions.
 
 ```{r medianRTs}
-# determine the mth row where smallest S(t) > .5
-cond1_m <- lt_full %>% 
-      filter(condition == 1 & survival > .5) %>% slice(n()) # take last row
-cond2_m <- lt_full %>% 
-      filter(condition == 2 & survival > .5) %>% slice(n()) 
+# extract rows around percentile 50 of the survivor function
+above_pct50 <- lt_full %>% 
+      group_by(condition) %>%
+      filter(survival > .5) %>% 
+      slice(n()) # take last row
+below_pct50 <- lt_full %>% 
+      group_by(condition) %>%
+      filter(survival < .5) %>% 
+      slice(1) # take first row
 
-# determine the row for m + 1
-cond1_m1 <- lt_full %>% 
-    filter(condition == 1 & survival < .5) %>% slice(1)
-cond2_m1 <- lt_full %>% 
-    filter(condition == 2 & survival < .5) %>% slice(1)
+period_above <- pull(above_pct50, period)
 
-# pull the value for m
-m_cond1  <- pull(cond1_m, period)
-m_cond2  <- pull(cond2_m, period)
+# pull survivor function values
+survival_above <- pull(above_pct50, survival)
+survival_below <- pull(below_pct50, survival)
 
-# pull the two survival function values
-surv_cond1_m  <- pull(cond1_m, survival)
-surv_cond1_m1 <- pull(cond1_m1, survival)
-surv_cond2_m  <- pull(cond2_m, survival)
-surv_cond2_m1 <- pull(cond2_m1, survival)
+# estimate median by interpolation
+median_period <- period_above+((survival_above-.5)/(survival_above-survival_below))*((period_above+1)-period_above)
 
-# plug the values into Equation 10.6 (page 338)
-median_cond1 <- m_cond1 + ((surv_cond1_m - .5) / (surv_cond1_m - surv_cond1_m1)) * ((m_cond1 + 1) - m_cond1) 
-median_cond2 <- m_cond2 + ((surv_cond2_m - .5) / (surv_cond2_m - surv_cond2_m1)) * ((m_cond2 + 1) - m_cond2) 
-# median RTs
-median_cond1*bin_size
-median_cond2*bin_size
+# transform to median RT
+median_RT <- median_period*bin_size
+median_RT
 ```
 
 Plot hazard, survival, S(t).50, and ca per condition.
 
 ```{r plotting, warning=F}
 p1 <-lt_full %>%
-  ggplot(aes(x=period, color=factor(condition), group=condition)) +
+  ggplot(aes(x=period, color=condition, group=condition)) +
   geom_line(aes(y=hazard)) +
 
   geom_point(aes(y=hazard), size=1) + labs(color="Condition") +
   geom_linerange(aes(ymin=hazard-se_haz, ymax=hazard+se_haz), show.legend = F) +
-  #scale_color_viridis_d(NULL, option = "A", end=.55) +
   scale_x_continuous(breaks = c(0,1:(cutoff/bin_size)), labels=c(0,1:(cutoff/bin_size)*bin_size),
                      limits = c(0,cutoff/bin_size)) +
   scale_y_continuous(limits = c(0,1)) +
@@ -183,14 +169,14 @@ p1 <-lt_full %>%
         legend.position = "top")
 
 p2 <-lt_full %>%
-  ggplot(aes(x=period, color=factor(condition), group=condition)) +
+  ggplot(aes(x=period, color=condition, group=condition)) +
   geom_line(aes(y=survival), show.legend = F) +
   geom_point(aes(y=survival), size=1, show.legend = F) +
   geom_linerange(aes(ymin=survival-se_surv, ymax=survival+se_surv), show.legend = F) +
-  #scale_color_viridis_d(NULL, option = "A", end=.55) +
   # add medians
   geom_path(aes(x=period, y=survival, color=factor(condition)),
-            data = tibble(period= c(median_cond1, median_cond1, median_cond2, median_cond2),
+            data = tibble(period= c(median_period[1], median_period[1],
+                                    median_period[2], median_period[2]),
                           survival = c(.5, 0, .5, 0),
                           condition = c(1,1,2,2)), 
             linetype = 3, show.legend = F) +
@@ -199,24 +185,21 @@ p2 <-lt_full %>%
   scale_y_continuous(limits = c(0,1)) +
   labs(x="", y="S(t)",
        colour="Condition") +
-  theme(legend.background = element_rect(fill = "transparent"),
-        panel.grid = element_blank())
+  theme(panel.grid = element_blank())
 
 p3 <-lt_full %>%
-  ggplot(aes(x=period, color=factor(condition), group=condition)) +
+  ggplot(aes(x=period, color=condition, group=condition)) +
   geom_line(aes(y=ca), show.legend = F) +
   geom_point(aes(y=ca), size=1, show.legend = F) +
   geom_linerange(aes(ymin=ca-se_ca, ymax=ca+se_ca), show.legend = F) +
-  #scale_color_viridis_d(NULL, option = "A", end=.55) +
   scale_x_continuous(breaks = c(0,1:(cutoff/bin_size)), labels=c(0,1:(cutoff/bin_size)*bin_size),
                      limits=c(0,cutoff/bin_size)) +
   scale_y_continuous(limits = c(0,1)) +
   labs(x="Time bin t's endpoint (ms)", y="ca(t)",
        colour="Condition") +
-  theme(legend.background = element_rect(fill = "transparent"),
-        panel.grid = element_blank())
+  theme(panel.grid = element_blank())
 
 p1/p2/p3
 
-ggsave("example1.png", width = 8, height = 5, dpi = 600)
+ggsave("figures/example1.png", width = 8, height = 5, dpi = 600)
 ```

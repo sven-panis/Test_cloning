@@ -23,4 +23,11 @@ Note: you can completely ignore the "intsall_packages.Rmd" file.
 
 Sven - you could put a description in here and the ones below...
 
+When plotting the data, some warning messages will be generated, like these:
+1: Removed 2 rows containing missing values or values outside the scale range (`geom_line()`). 
+2: Removed 2 rows containing missing values or values outside the scale range (`geom_point()`). 
+3: Removed 2 rows containing missing values or values outside the scale range (`geom_segment()`).
+This happens because for some bins ....
+
+
 **Exercise2.Rmd**
