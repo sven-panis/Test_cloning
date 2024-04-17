@@ -9,20 +9,22 @@ editor_options:
 Extend Exercise1 to multiple subjects using functional programming:
 Create fake RT + acc data for x conditions of y subjects, set-up life table, 
 and plot h(t), S(t), and ca(t) per condition and subject, together with median RT.
+Save one file for hazard modeling, and one for ca(t) modeling, and save a nice life table.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r loadPck, include=F}
-library(tidyverse)
-library(patchwork)
+```{r loadpck, include=F}
+library(tidyverse) # data wrangling
+library(patchwork) # combine figures
 library(pracma) # to Reshape() matrices
+library(flextable) # create tables 
 ```
 
 Create a fake RT (normal) + accuracy (about 70%) data set with x conditions for y subjects, and z trials per condition.
 
-```{r createFakeData, echo=T}
+```{r createfakedata, echo=T}
 set.seed(1276)
 Tr_pCond = 100 # trials per condition
 N_sub = 4    # number of subjects
@@ -55,8 +57,11 @@ Checkout these websites:
 https://modern-rstats.eu/functional-programming.html#functional-programming-and-plotting
 https://dcl-prog.stanford.edu/purrr-basics.html#extra-arguments
 
-```{r funcDefineCensoring_dRT}
+```{r funcdefinecensoring_drt}
 define_censoring_dRT <- function(df, timeout, bin_width){
+  if(!(timeout %% bin_width == 0)){
+    return("The censoring time must be a multiple of the bin width!")
+  }
   df %>% mutate(right_censored = 0,
                 RT2 = ifelse(RT > timeout, timeout, RT),
                 right_censored = ifelse(RT2 == timeout,1,right_censored),
@@ -65,7 +70,7 @@ define_censoring_dRT <- function(df, timeout, bin_width){
 }
 ```
 
-```{r funcSetUpPTB}
+```{r funcsetupptb}
 setup_person_trial_bin <- function(df){
   df %>% uncount(weights = dRT) %>% 
          group_by(trial) %>% 
@@ -75,7 +80,7 @@ setup_person_trial_bin <- function(df){
 }
 ```
 
-```{r funcSetUpLifeTable}
+```{r funcsetuplifetable}
 setup_lifetable <- function(ptb){
   ptb %>% mutate(event = str_c("event", event)) %>%
           group_by(condition,period) %>% 
@@ -96,7 +101,7 @@ setup_lifetable <- function(ptb){
 }
 ```
 
-```{r funcCalcConditionalAccuracy}
+```{r funcconditionalaccuracy}
 calc_conditionalaccuracy <- function(df){
   df %>% filter(right_censored==0) %>%
          group_by(condition,dRT,cens_time,bin_width) %>%
@@ -110,11 +115,11 @@ calc_conditionalaccuracy <- function(df){
 }
 ```
 
-```{r funcJoin}
+```{r funcjoin}
 join_lifetable_ca <- function(df1,df2){df1 %>% left_join(df2, join_by(condition,period))}
 ```
 
-```{r funcExtractMedian}
+```{r funcextractmedian}
 extract_median_period <- function(df){
   above_pct50 <- df %>% 
       group_by(condition) %>%
@@ -134,7 +139,7 @@ extract_median_period <- function(df){
 }
 ```
 
-```{r funcMakePlots}
+```{r funcmakeplots}
 plot_eha <- function(df,subj){
   library(patchwork)
   cutoff <- df %>% pull(cens_time) %>% max(na.rm=T)
@@ -195,7 +200,7 @@ p1/p2/p3
 
 Apply the functions using map and map2 to create the life tables and plots.
 
-```{r}
+```{r applyfunctions}
 data_final <- data_nested %>% 
                      mutate(censored  = map(data, define_censoring_dRT, 800, 100)) %>%       # user input: censoring time, and bin width
                      mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%           # create person-trial-bin dataset
@@ -207,12 +212,9 @@ data_final <- data_nested %>%
 
 Now you can extract info as required.
 
-```{r}
+```{r extractinfo}
 # view lifetables:
 data_final %>% pull(lifetable)
-
-# create file for Bayesian regression modeling:
-data_final %>% unnest(ptb_data)
 
 # view original data for subject 1:
 data_final[[2]][[1]]
@@ -221,12 +223,12 @@ data_final[[2]][[1]]
 data_final[[4]][[1]] 
 
 # view lifetable for subject 1
-data_final[[6]][[1]]
+data_final[[7]][[1]]
 ```
 
 And you can save each plot.
 
-```{r}
+```{r saveplots}
 # save as pdf
 map2(paste0("figures/figure_for_subject", data_final$pid, ".pdf"), data_final$plot, ggsave)
 
@@ -236,41 +238,43 @@ map2(paste0("figures/figure_for_subject", data_final$pid, ".png"), data_final$pl
 
 Make a nice life table for condition 1 of subject 1, and include row for time zero.
 
-```{r}
-flextable::flextable(data_final[[7]][[1]] %>% filter(condition==1) 
-    %>% select(period,risk_set,hazard,se_haz,survival,se_surv,ca, se_ca))
+```{r maketable}
+ft <- flextable::flextable(data_final[[7]][[1]] %>% filter(condition==1) 
+          %>% select(period,risk_set,hazard,se_haz,survival,se_surv,ca, se_ca))
+
+# TODO: add row for time zero
+
+# save in folder tables
+save_as_image(ft, "tables/lifetable.png")
 ```
 
 Extract file for modeling hazard.
 
-```{r}
+```{r filehazardmodeling}
 input_modeling_hazard <- data_final %>% 
                         select(pid, ptb_data) %>%  unnest(ptb_data) %>%
                         select(pid,trial,condition,period,event)
+
+# save in folder data
+write_csv(input_modeling_hazard, file="data/inputfile_hazard_modeling.csv")
 ```
 
 Extract file for modeling ca(t).
 
-```{r}
+```{r filecamodeling}
 input_ca_modeling <- data_final %>%
                     select(pid, censored) %>% unnest(censored) %>%
                     filter(right_censored == 0) %>% # only keep uncensored trials
                     select(pid, trial, condition, acc, dRT)
+
+# save in folder data
+write_csv(input_ca_modeling, file="data/inputfile_ca_modeling.csv")
 ```
 
-Still to do: make and save nice tables of each life table including a row for time 0.
+Extract median RTs.
 
-```{r }
-# 
-# row0_cond1 <- tibble(condition=factor(1),period=0.0,`event = 0` = NA,`event = 1` =NA, ev1 = NA,ev0 = NA,
-#                      RS = Trials_perCondition,hazard = NA,se_haz = NA,survival = 1,
-#                      term = NA,se_surv = 0,ca = NA,n = NA,se_ca = NA)
-# row0_cond2 <- tibble(condition=factor(2),period=0.0,`event = 0` = NA,`event = 1` = NA,ev1 = NA,ev0 = NA,
-#                      RS = Trials_perCondition,hazard = NA,se_haz = NA,survival = 1,
-#                      term = NA,se_surv = 0,ca = NA,n = NA,se_ca = NA)
-#                    
-# lt_full <- bind_rows(row0_cond1, row0_cond2, lt_full) %>% arrange(condition, period)
-#   
-# #print.data.frame(lt_full)
-# head(lt_full)
+```{r extractmedians}
+LL <-map(data_final$lifetable_ca, extract_median_period)
+
+# TODO: list comprehension in R
 ```
