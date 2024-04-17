@@ -275,6 +275,6 @@ Extract median RTs.
 
 ```{r extractmedians}
 LL <-map(data_final$lifetable_ca, extract_median_period)
-
-# TODO: list comprehension in R
+binsize <- data_final$censored[[1]] %>% pull(bin_width) %>% max(na.rm=T)
+modify_depth(LL,1,~.x*binsize)
 ```
