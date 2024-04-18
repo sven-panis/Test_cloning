@@ -1,0 +1,88 @@
+---
+title: "Exercise3"
+author: "sven panis"
+date: "2024-04-17"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadpck, include=F}
+library(tidyverse) # data wrangling
+```
+
+In Exercise 3 we will set up life tables for a real data set - experiment 1 from Panis & Schmidt (2016) - and compare our value to theirs to confirm the code in Exercise 2 is working correctly.
+
+First, load the functions defined in Exercise2.Rmd.
+
+Second, load the original datafile from Panis and Schmidt (2016), wrangle and reduce the datafile to 3 conditions, and apply the functions.
+The original datafile contains RT and accuracy data for 12 conditions (3 prime types x 4 mask types) of 6 subjects. The censoring time used was 600 ms, and the bin width 40 ms.
+Five trials without response info were deleted.
+
+```{r}
+datafile.orig <- read_delim(file="data/DataExp1_6subjects.txt", delim="\t",col_names=T)
+
+head(datafile.orig)
+# remove practice trials
+datafile.orig <- datafile.orig %>% filter(practice==0) # 9240 trials
+
+# remove unnecessary columns
+datafile.orig <- datafile.orig %>% select(-c(ss,bl,tr,practice,rd,form,task,primeduration,
+                                             blankduration,maskduration,targetduration,
+                                             void,target_dir,corresp,resperr))
+# remove 5 trials with no response info.
+cutoff <- 600
+sel = which(datafile.orig$resp==0 & datafile.orig$rt <= cutoff)
+sel
+datafile.orig <- datafile.orig[-c(770,1425,1428,1511,1512),]
+summary(datafile.orig)
+
+# set required column names: pid, trial, condition, RT, and acc
+colnames(datafile.orig) <- c("pid","mask","condition","resp","acc","RT","trial")
+
+# keep 3 conditions: no mask (0), and no prime (0),consistent(1),inconsistent prime(2) 
+datafile.orig <- datafile.orig %>% filter(mask == 0)
+datafile.orig <- datafile.orig %>% mutate(condition = condition + 1, 
+                                          condition = factor(condition, levels = c(1,2,3)))
+
+# apply the functions
+data_nested <- datafile.orig %>% group_nest(pid)
+
+data_final <- data_nested %>% 
+                     mutate(censored  = map(data, define_censoring_dRT, 600, 40)) %>% # user input: censoring time, and bin width
+                     mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%           # create person-trial-bin dataset
+                     mutate(lifetable = map(ptb_data, setup_lifetable)) %>%                  # create life tables without ca
+                     mutate(condacc   = map(censored, calc_conditionalaccuracy)) %>%         # calculate ca
+                     mutate(lifetable_ca = map2(lifetable, condacc, join_lifetable_ca)) %>%  # create life tables with ca
+                     mutate(plot      = map2(.x = lifetable_ca, .y = pid, plot_eha))         # create plots of info in life tables
+```
+
+Third, load the corresponding life tables from Panis and Schmidt (2016), and compare the values.
+
+```{r}
+load("data/NCE_Panis_final_LifeTables.RData")
+
+# compare lifetables for condition 1 and subject 1:
+LifeTableSubject[[1]][[1]]
+
+data_final$lifetable_ca[[1]] %>% filter(condition == 1)
+
+# all same except se_survival ... !!!!!! TODO: check formulas...
+
+LifeTableSubject[[1]][[2]]
+
+data_final$lifetable_ca[[1]] %>% filter(condition == 2)
+```
+
+```{r}
+# save as pdf
+map2(paste0("figures/figure_for_subject", data_final$pid, "_PanisSchmidt.pdf"), data_final$plot, ggsave)
+
+# error: wrong colors for median-segments in plots ??? SOLVED by changing condition values 0,1,2 to 1,2,3 !!!
+# error: different colors between subplots ??    SOLVED by changing condition values 0,1,2 to 1,2,3 !!!
+```
+

@@ -21,6 +21,18 @@ Note: you can completely ignore the "intsall_packages.Rmd" file.
 
 **Exercise1.Rmd**
 
-Sven - you could put a description in here and the ones below...
+Exercise 1 creates a simulated data file for 1 subject, sets up a life table for each condition, and plots the estimates of the discrete-time hazard, survivor, and conditional accuracy functions.
 
 **Exercise2.Rmd**
+
+Exercise 2 creates a simulated data file for n subjects, and uses functional programming to set up life tables and make plots of the h(t), S(t), and ca(t) functions.
+
+**General comments**
+
+When plotting the data, some warning messages will be generated, like these:
+
+1. Removed 2 rows containing missing values or values outside the scale range (`geom_line()`). 
+2. Removed 2 rows containing missing values or values outside the scale range (`geom_point()`). 
+3. Removed 2 rows containing missing values or values outside the scale range (`geom_segment()`).
+
+The warning messages are generated because some bins have no hazard and ca(t) estimates, and no error bars. They can thus safely be ignored.
