@@ -91,12 +91,12 @@ setup_lifetable <- function(ptb){
           mutate(event0 = ifelse(is.na(event0),0,event0), # replace NA with 0
                  event1 = ifelse(is.na(event1),0,event1),
                  risk_set = event0 + event1) %>% # define the risk set
-          mutate(hazard = num((event1 / risk_set),digits=4)) %>% # calculate hazard estimate
-          mutate(se_haz = num(sqrt((hazard * (1 - hazard)) / risk_set),digits=5)) %>% # se hazard
+          mutate(hazard = (event1 / risk_set)) %>% # calculate hazard estimate
+          mutate(se_haz = sqrt((hazard * (1 - hazard)) / risk_set)) %>% # se hazard
           group_by(condition) %>%
-          mutate(survival = num(cumprod(1-hazard),digits=4), # calculate survival estimate
-                 term     = num(cumsum(hazard / (risk_set * (1 - hazard))),digits=5),
-                 se_surv  = num( (survival * sqrt(term)) , digits=5) ) %>% # Greenwood's (1926) approximation
+          mutate(survival = (cumprod(1-hazard)), # calculate survival estimate
+                 term     = cumsum(hazard / (risk_set * (1 - hazard))),
+                 se_surv  = (survival * sqrt(term))  ) %>% # Greenwood's (1926) approximation
           ungroup() 
 }
 ```
@@ -239,13 +239,12 @@ map2(paste0("figures/figure_for_subject", data_final$pid, ".png"), data_final$pl
 Make a nice life table for condition 1 of subject 1, and include row for time zero.
 
 ```{r maketable}
-ft <- flextable::flextable(data_final[[7]][[1]] %>% filter(condition==1) 
-          %>% select(period,risk_set,hazard,se_haz,survival,se_surv,ca, se_ca))
+tbl <- data_final[[7]][[1]] %>% 
+  filter(condition==1) %>% 
+  select(period,risk_set,hazard,se_haz,survival,se_surv,ca, se_ca)
 
+knitr::kable(as.matrix(tbl),"simple", align = "lrcccccc", digits=c(0,0,2,4,2,4,2,4))
 # TODO: add row for time zero
-
-# save in folder tables
-save_as_image(ft, "tables/lifetable.png")
 ```
 
 Extract file for modeling hazard.
