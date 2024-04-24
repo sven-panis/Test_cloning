@@ -71,7 +71,7 @@ LifeTableSubject[[1]][[1]]
 
 data_final$lifetable_ca[[1]] %>% filter(condition == 1)
 
-# all same except se_survival ... !!!!!! TODO: check formulas...
+# conditon 2 and subject 1:
 
 LifeTableSubject[[1]][[2]]
 
@@ -81,8 +81,4 @@ data_final$lifetable_ca[[1]] %>% filter(condition == 2)
 ```{r}
 # save as pdf
 map2(paste0("figures/figure_for_subject", data_final$pid, "_PanisSchmidt.pdf"), data_final$plot, ggsave)
-
-# error: wrong colors for median-segments in plots ??? SOLVED by changing condition values 0,1,2 to 1,2,3 !!!
-# error: different colors between subplots ??    SOLVED by changing condition values 0,1,2 to 1,2,3 !!!
 ```
-
