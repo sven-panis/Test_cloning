@@ -11,7 +11,7 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r loadpck, include=F}
+```{r load-packages, include=F}
 library(tidyverse) # data wrangling
 ```
 
@@ -23,7 +23,7 @@ Second, load the original datafile from Panis and Schmidt (2016), wrangle and re
 The original datafile contains RT and accuracy data for 12 conditions (3 prime types x 4 mask types) of 6 subjects. The censoring time used was 600 ms, and the bin width 40 ms.
 Five trials without response info were deleted.
 
-```{r}
+```{r process-data-file}
 datafile.orig <- read_delim(file="data/DataExp1_6subjects.txt", delim="\t",col_names=T)
 
 head(datafile.orig)
@@ -63,7 +63,7 @@ data_final <- data_nested %>%
 
 Third, load the corresponding life tables from Panis and Schmidt (2016), and compare the values.
 
-```{r}
+```{r compare-results}
 load("data/NCE_Panis_final_LifeTables.RData")
 
 # compare lifetables for condition 1 and subject 1:
@@ -78,7 +78,7 @@ LifeTableSubject[[1]][[2]]
 data_final$lifetable_ca[[1]] %>% filter(condition == 2)
 ```
 
-```{r}
+```{r save-figs, eval=F}
 # save as pdf
 map2(paste0("figures/figure_for_subject", data_final$pid, "_PanisSchmidt.pdf"), data_final$plot, ggsave)
 ```
