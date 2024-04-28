@@ -8,23 +8,23 @@ editor_options:
 ---
 Extend Exercise1 to multiple subjects using functional programming:
 Create fake RT + acc data for x conditions of y subjects, set-up life table, 
-and plot h(t), S(t), and ca(t) per condition and subject, together with median RT.
-Save one file for hazard modeling, and one for ca(t) modeling, and save a nice life table.
+and plot h(t), S(t), and ca(t) for each condition per subject, together with median RT.
+Save figures, and save one file for hazard modeling, and one for ca(t) modeling, and print a nice life table.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r loadpck, include=F}
+```{r load-packages, include=F}
 library(tidyverse) # data wrangling
 library(patchwork) # combine figures
-library(pracma) # to Reshape() matrices
-library(flextable) # create tables 
+library(pracma)    # to Reshape() matrices
+#(flextable) # create tables 
 ```
 
 Create a fake RT (normal) + accuracy (about 70%) data set with x conditions for y subjects, and z trials per condition.
 
-```{r createfakedata, echo=T}
+```{r create-fake-data, echo=T}
 set.seed(1276)
 Tr_pCond = 100 # trials per condition
 N_sub = 4    # number of subjects
@@ -35,19 +35,19 @@ data <- tibble(
   pid   = rep(1:N_sub,each=N_cond*Tr_pCond),
   trial = as.integer(Reshape( replicate(N_sub,sample(1:(N_cond*Tr_pCond))),N_total,1)),
   condition = rep(rep(1:N_cond,each=Tr_pCond), N_sub),
-  RT = as.double(Reshape(replicate(N_sub*N_cond,rnorm(Tr_pCond, 600, 200)),N_total,1)),
+  RT = as.double(Reshape(replicate(N_sub*N_cond,rnorm(Tr_pCond, 600, 200)),N_total,1)) %>% round(digits=2),
   acc = as.double(Reshape(replicate(N_sub*N_cond,(sample(c(0,1), size=Tr_pCond,replace=T,            
                                                   prob=c(.3,.7)))),N_total,1))) %>%
       arrange(pid,trial) %>%
       mutate(RT = ifelse(RT<0,0.001,RT), # instead of filtering to keep all rows
              condition=factor(condition,levels=c(1:N_cond)))
 
-head(data)
+print.data.frame(data, max=50)
 ```
 
 Nest data within subjects.
 
-```{r nestsubjects}
+```{r nest-subjects}
 data_nested <- data %>% group_nest(pid)
 ```
 
@@ -57,20 +57,20 @@ Checkout these websites:
 https://modern-rstats.eu/functional-programming.html#functional-programming-and-plotting
 https://dcl-prog.stanford.edu/purrr-basics.html#extra-arguments
 
-```{r funcdefinecensoring_drt}
+```{r func-define-censoring-drt}
 define_censoring_dRT <- function(df, timeout, bin_width){
   if(!(timeout %% bin_width == 0)){
     return("The censoring time must be a multiple of the bin width!")
   }
   df %>% mutate(right_censored = 0,
-                RT2 = ifelse(RT > timeout, timeout, RT),
+                RT2 = ifelse(RT > timeout, timeout, RT) %>% round(digits=2),
                 right_censored = ifelse(RT2 == timeout,1,right_censored),
                 dRT = ceiling(RT2/bin_width),
                 cens_time = timeout, bin_width = bin_width)
 }
 ```
 
-```{r funcsetupptb}
+```{r func-setup-ptb}
 setup_person_trial_bin <- function(df){
   df %>% uncount(weights = dRT) %>% 
          group_by(trial) %>% 
@@ -80,7 +80,7 @@ setup_person_trial_bin <- function(df){
 }
 ```
 
-```{r funcsetuplifetable}
+```{r func-setup-lifetable}
 setup_lifetable <- function(ptb){
   ptb %>% mutate(event = str_c("event", event)) %>%
           group_by(condition,period) %>% 
@@ -91,35 +91,35 @@ setup_lifetable <- function(ptb){
           mutate(event0 = ifelse(is.na(event0),0,event0), # replace NA with 0
                  event1 = ifelse(is.na(event1),0,event1),
                  risk_set = event0 + event1) %>% # define the risk set
-          mutate(hazard = (event1 / risk_set)) %>% # calculate hazard estimate
-          mutate(se_haz = sqrt((hazard * (1 - hazard)) / risk_set)) %>% # se hazard
+          mutate(hazard = (event1 / risk_set) %>% round(digits = 3)) %>% # calculate hazard estimate
+          mutate(se_haz = sqrt((hazard * (1 - hazard)) / risk_set) %>% round(digits = 3)) %>% # se hazard
           group_by(condition) %>%
-          mutate(survival = (cumprod(1-hazard)), # calculate survival estimate
-                 term     = cumsum(hazard / (risk_set * (1 - hazard))),
-                 se_surv  = (survival * sqrt(term))  ) %>% # Greenwood's (1926) approximation
+          mutate(survival = (cumprod(1-hazard)) %>% round(digits = 4), # calculate survival estimate
+                 term     = cumsum(hazard / (risk_set * (1 - hazard))) %>% round(digits = 3),
+                 se_surv  = (survival * sqrt(term)) %>% round(digits = 3)  ) %>% # Greenwood's (1926) approximation
           ungroup() 
 }
 ```
 
-```{r funcconditionalaccuracy}
+```{r func-conditional-accuracy}
 calc_conditionalaccuracy <- function(df){
   df %>% filter(right_censored==0) %>%
          group_by(condition,dRT,cens_time,bin_width) %>%
-         summarize(ca = mean(acc),
+         summarize(ca = mean(acc) %>% round(digits = 2),
                    n = n(),
                    .groups = 'drop') %>%
          ungroup() %>%
          mutate(period = dRT,
-                se_ca = sqrt((ca * (1-ca)) / n)) %>%
+                se_ca = sqrt((ca * (1-ca)) / n) %>% round(digits = 3)) %>%
          select(-dRT)
 }
 ```
 
-```{r funcjoin}
+```{r func-join}
 join_lifetable_ca <- function(df1,df2){df1 %>% left_join(df2, join_by(condition,period))}
 ```
 
-```{r funcextractmedian}
+```{r func-extract-median}
 extract_median_period <- function(df){
   above_pct50 <- df %>% 
       group_by(condition) %>%
@@ -139,7 +139,7 @@ extract_median_period <- function(df){
 }
 ```
 
-```{r funcmakeplots}
+```{r func-make-plots}
 plot_eha <- function(df,subj){
   library(patchwork)
   cutoff <- df %>% pull(cens_time) %>% max(na.rm=T)
@@ -200,7 +200,7 @@ p1/p2/p3
 
 Apply the functions using map and map2 to create the life tables and plots.
 
-```{r applyfunctions}
+```{r apply-functions}
 data_final <- data_nested %>% 
                      mutate(censored  = map(data, define_censoring_dRT, 800, 100)) %>%       # user input: censoring time, and bin width
                      mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%           # create person-trial-bin dataset
@@ -212,23 +212,20 @@ data_final <- data_nested %>%
 
 Now you can extract info as required.
 
-```{r extractinfo}
-# view lifetables:
-data_final %>% pull(lifetable)
-
+```{r extract-info}
 # view original data for subject 1:
-data_final[[2]][[1]]
+print.data.frame(data_final[[2]][[1]], max=60)
 
 # view person-trial-bin data set for subject 1:
-data_final[[4]][[1]] 
+print.data.frame(data_final[[4]][[1]], max=160) 
 
-# view lifetable for subject 1
-data_final[[7]][[1]]
+# view lifetables for each condition for subject 1
+print.data.frame(data_final[[7]][[1]], max=300)
 ```
 
 And you can save each plot.
 
-```{r saveplots}
+```{r save-plots}
 # save as pdf
 map2(paste0("figures/figure_for_subject", data_final$pid, ".pdf"), data_final$plot, ggsave)
 
@@ -238,7 +235,7 @@ map2(paste0("figures/figure_for_subject", data_final$pid, ".png"), data_final$pl
 
 Make a nice life table for condition 1 of subject 1, and include row for time zero.
 
-```{r maketable}
+```{r make-table}
 tbl <- data_final[[7]][[1]] %>% 
   filter(condition==1) %>% 
   select(period,risk_set,hazard,se_haz,survival,se_surv,ca, se_ca)
@@ -249,7 +246,7 @@ knitr::kable(as.matrix(tbl),"simple", align = "lrcccccc", digits=c(0,0,2,4,2,4,2
 
 Extract file for modeling hazard.
 
-```{r filehazardmodeling}
+```{r file-hazard-modeling}
 input_modeling_hazard <- data_final %>% 
                         select(pid, ptb_data) %>%  unnest(ptb_data) %>%
                         select(pid,trial,condition,period,event)
@@ -260,7 +257,7 @@ write_csv(input_modeling_hazard, file="data/inputfile_hazard_modeling.csv")
 
 Extract file for modeling ca(t).
 
-```{r filecamodeling}
+```{r file-ca-modeling}
 input_ca_modeling <- data_final %>%
                     select(pid, censored) %>% unnest(censored) %>%
                     filter(right_censored == 0) %>% # only keep uncensored trials
@@ -272,7 +269,7 @@ write_csv(input_ca_modeling, file="data/inputfile_ca_modeling.csv")
 
 Extract median RTs.
 
-```{r extractmedians}
+```{r extract-medians}
 LL <-map(data_final$lifetable_ca, extract_median_period)
 binsize <- data_final$censored[[1]] %>% pull(bin_width) %>% max(na.rm=T)
 modify_depth(LL,1,~.x*binsize)
