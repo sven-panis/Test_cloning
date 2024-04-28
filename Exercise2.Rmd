@@ -92,10 +92,10 @@ setup_lifetable <- function(ptb){
                  event1 = ifelse(is.na(event1),0,event1),
                  risk_set = event0 + event1) %>% # define the risk set
           mutate(hazard = (event1 / risk_set) %>% round(digits = 3)) %>% # calculate hazard estimate
-          mutate(se_haz = sqrt((hazard * (1 - hazard)) / risk_set) %>% round(digits = 3)) %>% # se hazard
+          mutate(se_haz = sqrt((hazard * (1 - hazard)) / risk_set) %>% round(digits = 4)) %>% # se hazard
           group_by(condition) %>%
           mutate(survival = (cumprod(1-hazard)) %>% round(digits = 4), # calculate survival estimate
-                 term     = cumsum(hazard / (risk_set * (1 - hazard))) %>% round(digits = 3),
+                 term     = (cumsum(hazard / (risk_set * (1 - hazard)))) %>% round(digits = 7),
                  se_surv  = (survival * sqrt(term)) %>% round(digits = 5)  ) %>% # Greenwood's (1926) approximation
           ungroup() 
 }
