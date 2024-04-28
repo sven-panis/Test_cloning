@@ -215,5 +215,3 @@ ggsave("figures/example1.png", width = 8, height = 5, dpi = 600)
 ```{r set-back-tibble-options}
 options(old)
 ```
-
-
