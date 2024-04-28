@@ -69,13 +69,13 @@ load("data/NCE_Panis_final_LifeTables.RData")
 # compare lifetables for condition 1 and subject 1:
 LifeTableSubject[[1]][[1]]
 
-data_final$lifetable_ca[[1]] %>% filter(condition == 1)
+print.data.frame(data_final$lifetable_ca[[1]] %>% filter(condition == 1))
 
 # conditon 2 and subject 1:
 
 LifeTableSubject[[1]][[2]]
 
-data_final$lifetable_ca[[1]] %>% filter(condition == 2)
+print.data.frame(data_final$lifetable_ca[[1]] %>% filter(condition == 2))
 ```
 
 ```{r save-figs, eval=F}
