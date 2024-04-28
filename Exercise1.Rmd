@@ -7,13 +7,13 @@ editor_options:
   chunk_output_type: console
 ---
 
-Create fake RT + acc data for 2 conditions (normal, exponential; about 30% errors each) of 1 subject, set-up life table, and plot h(t), S(t), and ca(t) per condition, together with median RT.
+Create fake RT + acc data for 2 conditions (normal, exponential; about 30% errors each) of 1 subject, set-up life table, and plot h(t), S(t), and ca(t) per condition, together with median RT, and save figure.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r load-Pck, include=F}
+```{r load-packages, include=F}
 library(tidyverse) # data wrangling functions
 library(patchwork) # combine figures
 ```
@@ -26,7 +26,7 @@ old <- options(
 
 Create a fake RT + accuracy data set for 1 subject.
 
-```{r createFakeData, echo=T}
+```{r create-fake-data, echo=T}
 set.seed(1274)
 Trials_perCondition = 100
 
@@ -61,7 +61,7 @@ print.data.frame(data2,max=100)
 
 Create person-trial-period data set.
 
-```{r ptbDataSet}
+```{r ptb-dataset}
 data_ptb <-
   data2 %>% 
   uncount(weights = dRT) %>% # duplicate rows according to a weighting variable (or expression).
@@ -116,7 +116,7 @@ print.data.frame(ca, max = 100)
 
 Add conditional accuracy, and optionally the row for time 0 in the lifetables.
 
-```{r fulllifetable}
+```{r full-lifetable}
 lt_full <- data_lt %>%
     left_join(ca, join_by(condition,period))
 
@@ -134,7 +134,7 @@ print.data.frame(lt_full,max=200)
 
 Extract median RT for each condition, based on survivor functions.
 
-```{r medianRTs}
+```{r median-rt}
 # extract rows around percentile 50 of the survivor function
 above_pct50 <- lt_full %>% 
       group_by(condition) %>%
