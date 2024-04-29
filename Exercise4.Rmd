@@ -34,12 +34,10 @@ supportsMulticore()
 
 detectCores()
 
+#check info if needed
 packageVersion("cmdstanr")
 
 devtools::session_info("rstan")
-
-
-
 ```
 
 ## read in person-trial-bin dataset (assuming independent observations) and create factors where necessary ##
@@ -49,7 +47,7 @@ ptb_data_ind <- read_csv("data/inputfile_hazard_modeling_ind.csv")
 head(ptb_data_ind)
 summary(ptb_data_ind) # 26602 rows: 2757 independent trials, 3 conditions, 15 periods, and event indicator (0/1)
 
-# select time bins 6-15 containing enough data (see figure_for_ind1.pdf)
+# select time bins 6-15 containing enough data (see also figure_for_ind1.pdf)
 ptb_data_ind %>% group_by(period, event) %>% summarize(N = n())
 
 ptb_data_ind <- ptb_data_ind %>% filter(period > 5) # 12840 rows left: 2757 trials, 10 periods
@@ -80,8 +78,8 @@ head(ptb_data_ind)
 
 We start with a logit link and two dichotomous predictors (con, incon), and assume that 
 (a) logit hazard is general with time (one intercept for each bin),
-(b) each of the logit hazard functions has an identical shape,
-(c) the distance between each of these logit hazard functions is identical in each time bin (or period).
+(b) for each predictor value, the logit hazard functions has an identical shape,
+(c) the distance between each of the logit hazard functions is identical in each time bin (or period).
 
 ## b0.general - intercepts only ##
 
@@ -109,7 +107,7 @@ visualize("normal(0, 0.5)", "normal(0, 1)", "normal(0, 2)", "normal(0,4)",
 ```
 
 (0,4) for the intercepts provides good coverage for what we might expect
-for the logit hazard in each bin.
+for the logit hazard in each bin (between -8 and 8).
 
 ## set priors ##
 
@@ -142,7 +140,16 @@ plot(b0.general1)
 ```
 
 
-## Run second model including predictor PRIME (con and incon)
+
+
+
+
+
+
+
+
+
+## Run second model including the experimental factor PRIME with three levels (using both dichotomous variables con and incon)
 
 ```{r b1.general1-prime-formula}
 formula = bf(event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15 + con +incon)
@@ -188,7 +195,10 @@ b1.general1_prime <- brm(formula = formula,
 summary(b1.general1_prime)
 ```
 
-```{r}
-get_prior(b1.general1_prime)
-```
+
+## Run third model: a maximal multilevel model
+
+
+
+
 
