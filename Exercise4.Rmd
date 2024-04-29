@@ -1,0 +1,152 @@
+---
+title: "Exercise4"
+author: "sven panis"
+date: "2024-04-29"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file builds Bayesian hazard models for the first experiment of Panis and Schmidt (2016) using only the nomask conditions (prime = neutral, congruent, or incongruent).
+
+# load the libraries that we will be using #
+
+```{r load-pkg}
+pkg <- c("cmdstanr", "standist", "tidyverse", "RColorBrewer", "patchwork", 
+         "brms", "tidybayes", "bayesplot", "future", "parallel")
+
+lapply(pkg, library, character.only = TRUE)
+```
+
+# set options #
+
+```{r set-options}
+options(brms.backend = "cmdstanr",
+        mc.cores = parallel::detectCores(),
+        future.fork.enable = TRUE,
+        future.rng.onMisuse = "ignore") ## automatically set in RStudio
+
+supportsMulticore()
+
+detectCores()
+
+packageVersion("cmdstanr")
+```
+
+## read in person-trial-bin dataset (assuming independent observations) and create factors where necessary ##
+
+```{r}
+ptb_data_ind <- read_csv("data/inputfile_hazard_modeling_ind.csv")
+head(ptb_data_ind)
+summary(ptb_data_ind) # 26602 rows: 2757 independent trials, 3 conditions, 15 periods, and event indicator (0/1)
+
+# select time bins 6-15 containing enough data (see figure_for_ind1.pdf)
+ptb_data_ind %>% group_by(period, event) %>% summarize(N = n())
+
+ptb_data_ind <- ptb_data_ind %>% filter(period > 5) # 12840 rows left: 2757 trials, 10 periods
+summary(ptb_data_ind)
+
+# create dummy variables for each time period and level of condition
+ptb_data_ind <- ptb_data_ind %>% 
+                    mutate(d6 = if_else(period == 6, 1, 0),
+                           d7 = if_else(period == 7, 1, 0),
+                           d8 = if_else(period == 8, 1, 0),
+                           d9 = if_else(period == 9, 1, 0),
+                           d10 = if_else(period == 10, 1, 0),
+                           d11 = if_else(period == 11, 1, 0),
+                           d12 = if_else(period == 12, 1, 0),
+                           d13 = if_else(period == 13, 1, 0),
+                           d14 = if_else(period == 14, 1, 0),
+                           d15 = if_else(period == 15, 1, 0),
+                           con = if_else(condition == 2, 1, 0),
+                           incon = if_else(condition == 3, 1, 0))
+head(ptb_data_ind)
+
+# create period_factor
+ptb_data_ind <- ptb_data_ind %>% mutate(period_factor = factor(period, levels = c(6:15)))
+head(ptb_data_ind)
+```
+
+## build some models ##
+
+We start with a logit link and two dichotomous predictors (con, incon), and assume that 
+(a) logit hazard is general with time (one intercept for each bin),
+(b) each of the logit hazard functions has an identical shape,
+(c) the distance between each of these logit hazard functions is identical in each time bin (or period).
+
+## b0.general - intercepts only ##
+
+# formula #
+
+```{r b0.general-formula}
+formula = bf(event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15)
+```
+
+# check the priors available #
+
+```{r b0.general-get-priors}
+get_prior(formula,
+          data = ptb_data_ind, family = binomial(link=logit))
+```
+
+## visualise priors ##
+
+here we would normally visualise priors of interest to make a judgment about what
+would constitute weakly informative priors. 
+
+```{r b0.general-vis-priors}
+visualize("normal(0, 0.5)", "normal(0, 1)", "normal(0, 2)", "normal(0,4)", 
+          xlim = c(-8, 8))
+```
+
+(0,4) for the intercepts provides good coverage for what we might expect
+for the logit hazard in each bin.
+
+## set priors ##
+
+```{r b0.general-set-priors}
+priors <- c(
+  set_prior("normal(0, 4)", class = "b")
+)
+```
+
+# run the model #
+
+```{r b0.general-model}
+plan(multicore)
+b0.general <- brm(formula = formula,
+                data = ptb_data_ind, family = binomial(link = logit),
+                prior = priors,
+                iter = 2000, warmup = 1000, cores = 8, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0.general")
+summary(b0.general)
+```
+
+## take a look ##
+
+chains
+
+```{r b0-chains}
+plot(b0)
+```
+
+pp check
+
+```{r b0-pp-check}
+pp_b0 <- pp_check(b0, ndraws = 100)
+pp_b0
+```
+
+not a great fit for the reasons outlined above about the choice of model. That's
+not important right now.
+
+
+
+
+
