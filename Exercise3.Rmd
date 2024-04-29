@@ -31,7 +31,7 @@ head(datafile.orig)
 datafile.orig <- datafile.orig %>% filter(practice==0) # 9240 trials
 
 # remove unnecessary columns
-datafile.orig <- datafile.orig %>% select(-c(ss,bl,tr,practice,rd,form,task,primeduration,
+datafile.orig <- datafile.orig %>% select(-c(ss,practice,rd,form,task,primeduration,
                                              blankduration,maskduration,targetduration,
                                              void,target_dir,corresp,resperr))
 # remove 5 trials with no response info.
@@ -42,10 +42,10 @@ datafile.orig <- datafile.orig[-c(770,1425,1428,1511,1512),]
 summary(datafile.orig)
 
 # set required column names: pid, trial, condition, RT, and acc
-colnames(datafile.orig) <- c("pid","mask","condition","resp","acc","RT","trial")
+colnames(datafile.orig) <- c("pid","bl","tr","mask","condition","resp","acc","RT","trial")
 
 # keep 3 conditions: no mask (0), and no prime (0),consistent(1),inconsistent prime(2) 
-datafile.orig <- datafile.orig %>% filter(mask == 0)
+datafile.orig <- datafile.orig %>% filter(mask == 0) # 2757 rows left
 datafile.orig <- datafile.orig %>% mutate(condition = condition + 1, 
                                           condition = factor(condition, levels = c(1,2,3)))
 
@@ -78,7 +78,62 @@ LifeTableSubject[[1]][[2]]
 print.data.frame(data_final$lifetable_ca[[1]] %>% filter(condition == 2))
 ```
 
+Save the plots for each subject.
+
 ```{r save-figs, eval=F}
 # save as pdf
 map2(paste0("figures/figure_for_subject", data_final$pid, "_PanisSchmidt.pdf"), data_final$plot, ggsave)
 ```
+
+Now, assume all trials are independent. Make 1 plot for all data.
+This requires a single pid, and a trial column that identifies each unique trial.
+
+```{r}
+summary(datafile.orig)
+# create new pid and trial variables
+datafile.orig_ind <- datafile.orig %>% mutate(oldtrial=trial,
+                                              oldpid=pid,
+                                              trial = 1:n(),
+                                              pid = 1)
+summary(datafile.orig_ind)
+```
+
+
+```{r}
+data_nested_ind <- datafile.orig_ind %>% group_nest(pid)
+
+data_final_ind <- data_nested_ind %>% 
+                     mutate(censored  = map(data, define_censoring_dRT, 600, 40)) %>% #3 user input: censoring time, and bin width
+                     mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%           #4 create person-trial-bin dataset
+                     mutate(lifetable = map(ptb_data, setup_lifetable)) %>%                  # create life tables without ca
+                     mutate(condacc   = map(censored, calc_conditionalaccuracy)) %>%         # calculate ca
+                     mutate(lifetable_ca = map2(lifetable, condacc, join_lifetable_ca)) %>%  # create life tables with ca
+                     mutate(plot      = map2(.x = lifetable_ca, .y = pid, plot_eha))         # create plots of info in life tables
+```
+
+```{r}
+# view person-trial-bin data set 
+print.data.frame(data_final_ind[[4]][[1]], max=400) 
+
+# view lifetables for each condition 
+print.data.frame(data_final_ind[[5]][[1]], max=600)
+```
+
+
+```{r save-plot-ind}
+# save as pdf
+map2(paste0("figures/figure_for_ind", data_final_ind$pid, ".pdf"), data_final_ind$plot, ggsave)
+```
+
+Extract file for modeling hazard.
+
+```{r file-hazard-modeling}
+input_modeling_hazard_ind <- data_final_ind %>% 
+                               select(pid, ptb_data) %>%  unnest(ptb_data) %>%
+                               select(pid,trial,condition,period,event)
+
+# save in folder data
+write_csv(input_modeling_hazard_ind, file="data/inputfile_hazard_modeling_ind.csv")
+```
+
+
