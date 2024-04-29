@@ -27,6 +27,14 @@ Exercise 1 creates a simulated data file for 1 subject, sets up a life table for
 
 Exercise 2 creates a simulated data file for n subjects, and uses functional programming to set up life tables and make plots of the h(t), S(t), and ca(t) functions.
 
+**Exercise3.Rmd**
+
+Here we apply the functions to existing (but reduced) data file from Panis and Schmidt (2016).
+
+**Exercise4.Rmd**
+
+Here we start with fitting bayesian hazard regression models.
+
 **General comments**
 
 When plotting the data, some warning messages will be generated, like these:
