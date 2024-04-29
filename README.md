@@ -13,9 +13,9 @@ See this link for the difference between cloning and forking. https://github.com
 
 3. Use renv::restore() to install all of the packages. Say yes.
 
-4. At this point, you can use the project with the same package versions that were stored in the renv.lock file.
+4. At this point, you can use the project with the same package versions that are stored in the renv.lock file.
 
-Note: you can completely ignore the "intsall_packages.Rmd" file.
+Note: you can completely ignore the "install_packages.Rmd" file.
 
 # What are the main project files? #
 
