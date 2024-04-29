@@ -35,6 +35,11 @@ supportsMulticore()
 detectCores()
 
 packageVersion("cmdstanr")
+
+devtools::session_info("rstan")
+
+
+
 ```
 
 ## read in person-trial-bin dataset (assuming independent observations) and create factors where necessary ##
@@ -114,39 +119,76 @@ priors <- c(
 )
 ```
 
-# run the model #
+# run the first model #
 
 ```{r b0.general-model}
 plan(multicore)
-b0.general <- brm(formula = formula,
+b0.general1 <- brm(formula = formula,
                 data = ptb_data_ind, family = binomial(link = logit),
                 prior = priors,
-                iter = 2000, warmup = 1000, cores = 8, chains = 4,
+                iter = 3000, warmup = 1000, cores = 8, chains = 4,
                 save_pars = save_pars(all=TRUE),
                 seed = 123,
-                file = "models/b0.general")
-summary(b0.general)
+                file = "models/b0.general1") # iter=3000 for general1 / 2000 for general
+summary(b0.general1)
 ```
 
 ## take a look ##
 
 chains
 
-```{r b0-chains}
-plot(b0)
+```{r b0.general1-chains}
+plot(b0.general1)
 ```
 
-pp check
 
-```{r b0-pp-check}
-pp_b0 <- pp_check(b0, ndraws = 100)
-pp_b0
+## Run second model including predictor PRIME (con and incon)
+
+```{r b1.general1-prime-formula}
+formula = bf(event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15 + con +incon)
 ```
 
-not a great fit for the reasons outlined above about the choice of model. That's
-not important right now.
+# check the priors available #
 
+```{r b1.general-prime-get-priors}
+get_prior(formula,
+          data = ptb_data_ind, family = binomial(link=logit))
+```
 
+## visualise priors ##
 
+here we would normally visualise priors of interest to make a judgment about what
+would constitute weakly informative priors. 
 
+```{r b1.general1-prime-vis-priors}
+visualize("normal(0, 0.5)", "normal(0, 1)", "normal(0, 2)", "normal(0,4)", 
+          xlim = c(-8, 8))
+```
+
+(0,4) for the intercepts provides good coverage for what we might expect
+for the logit hazard in each bin.
+
+## set priors ##
+
+```{r b1.general1-prime-set-priors}
+priors <- c(
+  set_prior("normal(0, 4)", class = "b")
+)
+```
+
+```{r b1.general1-prime-model}
+plan(multicore)
+b1.general1_prime <- brm(formula = formula,
+                data = ptb_data_ind, family = binomial(link = logit),
+                prior = priors,
+                iter = 3000, warmup = 1000, cores = 8, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b1.general1.prime")
+summary(b1.general1_prime)
+```
+
+```{r}
+get_prior(b1.general1_prime)
+```
 
