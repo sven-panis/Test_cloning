@@ -85,7 +85,7 @@ Save the plots for each subject.
 map2(paste0("figures/figure_for_subject", data_final$pid, "_PanisSchmidt.pdf"), data_final$plot, ggsave)
 ```
 
-Now, assume all trials are independent. Make 1 plot for all data.
+Now, assume all trials are independent, to fit bayesian hazard models without multilevel structure. Make 1 plot for all data.
 This requires a single pid, and a trial column that identifies each unique trial.
 
 ```{r}
