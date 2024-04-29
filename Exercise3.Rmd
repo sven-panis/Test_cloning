@@ -164,5 +164,5 @@ data_final_ind_1cond <- data_nested_ind_1cond %>%
 # view lifetables for single condition 
 print.data.frame(data_final_ind_1cond[[5]][[1]], max=600)
 
-# the MLE hazard estimates in bins 6-15 are almost identical to the estimates of "fixef(b0.general1) %>% inv_logit()", as expected.
+# the MLE hazard estimates in bins 6-15 are almost identical to the estimates of "fixef(b0.general1) %>% inv_logit()" in Exercise 4, as expected.
 ```
