@@ -125,7 +125,7 @@ print.data.frame(data_final_ind[[5]][[1]], max=600)
 map2(paste0("figures/figure_for_ind", data_final_ind$pid, ".pdf"), data_final_ind$plot, ggsave)
 ```
 
-Extract file for modeling hazard.
+Extract file for modeling hazard without multilevel structure.
 
 ```{r file-hazard-modeling}
 input_modeling_hazard_ind <- data_final_ind %>% 
@@ -136,4 +136,33 @@ input_modeling_hazard_ind <- data_final_ind %>%
 write_csv(input_modeling_hazard_ind, file="data/inputfile_hazard_modeling_ind.csv")
 ```
 
+Now, assume all trials are independent, and only 1 condition (to compare with model b0.general1).
+This requires a single pid, a single condition, and a trial column that identifies each unique trial.
 
+```{r}
+summary(datafile.orig)
+# create new pid and trial variables
+datafile.orig_ind_1cond <- datafile.orig %>% mutate(oldtrial=trial,
+                                              oldpid=pid,
+                                              oldcond = condition,
+                                              trial = 1:n(),
+                                              pid = 1,
+                                              condition = 1)
+summary(datafile.orig_ind_1cond)
+```
+
+```{r}
+data_nested_ind_1cond <- datafile.orig_ind_1cond %>% group_nest(pid)
+
+data_final_ind_1cond <- data_nested_ind_1cond %>% 
+                     mutate(censored  = map(data, define_censoring_dRT, 600, 40)) %>% #3 user input: censoring time, and bin width
+                     mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%    #4 create person-trial-bin dataset
+                     mutate(lifetable = map(ptb_data, setup_lifetable)) 
+```
+
+```{r}
+# view lifetables for single condition 
+print.data.frame(data_final_ind_1cond[[5]][[1]], max=600)
+
+# the MLE hazard estimates in bins 6-15 are almost identical to the estimates of "fixef(b0.general1) %>% inv_logit()", as expected.
+```
