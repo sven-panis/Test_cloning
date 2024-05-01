@@ -119,7 +119,7 @@ priors <- c(
 
 # run the first model #
 
-```{r b0.general-model}
+```{r b0.general1-model}
 plan(multicore)
 b0.general1 <- brm(formula = formula,
                 data = ptb_data_ind, family = binomial(link = logit),
@@ -127,7 +127,7 @@ b0.general1 <- brm(formula = formula,
                 iter = 3000, warmup = 1000, cores = 8, chains = 4,
                 save_pars = save_pars(all=TRUE),
                 seed = 123,
-                file = "models/b0.general1") # iter=3000 for general1 / 2000 for general
+                file = "models/b0.general1") # iter=3000 for general1 / 2000 for general had Rhat=1.1
 summary(b0.general1)
 ```
 
@@ -140,16 +140,7 @@ plot(b0.general1)
 ```
 
 
-
-
-
-
-
-
-
-
-
-## Run second model including the experimental factor PRIME with three levels (using both dichotomous variables con and incon)
+## Run a second model including the experimental factor PRIME with three levels (using both dichotomous variables con and incon)
 
 ```{r b1.general1-prime-formula}
 formula = bf(event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15 + con +incon)
@@ -195,8 +186,400 @@ b1.general1_prime <- brm(formula = formula,
 summary(b1.general1_prime)
 ```
 
+Interpreting the parameter estimates.
 
-## Run third model: a maximal multilevel model
+Arrange parameter summaries for both models.
+
+```{r}
+tibble(model = str_c("model ", letters[1:2]),
+       fit   = c("b0.general1","b1.general1_prime")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+  #flextable::flextable() %>% 
+  #flextable::width(width = 1)
+```
+
+A coefficient plot will help us to get a sense of how the risk increases, decreases, or stays steady over time for the baseline logit hazard function (the time indicators).
+
+```{r}
+tibble(model = str_c("model ", letters[1:2]),
+       fit   = c("b0.general1","b1.general1_prime")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  filter(str_detect(parameter, "d")) %>% 
+  mutate(parameter = factor(str_remove(parameter, "b_"), 
+                            levels = str_c("d", 15:6))) %>%
+  
+  ggplot(aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = parameter)) +
+  geom_pointrange(fatten = 2.5) +
+  labs(x = "posterior (log-odds scale)",
+       y = NULL) +
+  theme(axis.text.y = element_text(hjust = 0),
+        axis.ticks.y = element_blank(),
+        panel.grid = element_blank()) +
+  facet_wrap(~ model, nrow = 1)
+```
+
+The risk of response occurrence increases until bin 10 (400 ms), stays steady for 160 ms, and then decreases somewhat.
+On the hazard scale:
+
+```{r}
+tibble(model = str_c("model ", letters[1:2]),
+       fit   = c("b0.general1","b1.general1_prime")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  filter(str_detect(parameter, "d")) %>% 
+  mutate(parameter = factor(str_remove(parameter, "b_"), 
+                            levels = str_c("d", 15:6))) %>%
+  mutate_at(vars(Estimate:Q97.5), .funs = inv_logit_scaled) %>% # convert from logit to probabiliy metric
+  
+  ggplot(aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = parameter)) +
+  geom_pointrange(fatten = 2.5) +
+  labs(x = "posterior (hazard scale)",
+       y = NULL) +
+  theme(axis.text.y = element_text(hjust = 0),
+        axis.ticks.y = element_blank(),
+        panel.grid = element_blank()) +
+  facet_wrap(~ model, nrow = 1)
+```
+
+Hazard of event occurrence increases at an increasing rate until 400 ms, then stays more or less constant until 520 ms, and then drops a bit.
+
+A table with model a's estimates on three scales (logit, odds, hazard):
+
+```{r}
+fixef(b0.general1) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+  mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(`time period`, predictor, Estimate) %>% 
+  mutate(`fitted odds`   = exp(Estimate),
+         `fitted hazard` = inv_logit_scaled(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+  #flextable::flextable() %>% 
+  #flextable::width(width = 1)
+```
+
+Interpreting the dichotomous predictors con and incon.
+
+Summary for con from model b:
+
+```{r}
+fixef(b1.general1_prime)["con",]
+```
+
+Taking the anti-log of the estimate gives us an odds ratio:
+
+```{r}
+fixef(b1.general1_prime)["con", 1] %>% exp()
+```
+
+Plot this conversion for the posterior distribution:
+
+```{r}
+posterior_samples(b1.general1_prime) %>% # 14 x 8000: b_d6 ... b_d15 b_con b_incon lprior lp__
+ transmute(`log-odds`     = b_con,
+            `odds ratio` = exp(b_con)) %>% 
+  pivot_longer(everything()) %>% 
+  mutate(name = factor(name, levels = c("log-odds", "odds ratio"))) %>% 
+  
+  ggplot(aes(x = value, y = 0)) +
+  stat_halfeye(.width = c(.5, .95), normalize = "panels") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  xlab("marginal posterior for con") +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ name, scales = "free")
+```
+
+In every bin, the estimated odds of response (button-press) occurrence are 1.66 times higher for congruent prime trials compared to neutral prime trials. 
+
+To reframe the odds ratio in terms of the other group (i.e., con == 0), take the reciprocal.
+
+```{r}
+1 / exp(fixef(b1.general1_prime)[11, 1]) # 0.604
+```
+
+The estimated odds of response occurrence for neutral prime trials are approximately 60% of the odds for congruent prime trials
+
+Make a similar plot for incon.
+
+```{r}
+as_draws_df(b1.general1_prime) %>% 
+  transmute(`log-odds`     = b_incon,
+            `odds ratio` = exp(b_incon)) %>% 
+  pivot_longer(everything()) %>% 
+  mutate(name = factor(name, levels = c("log-odds", "odds ratio"))) %>% 
+  
+  ggplot(aes(x = value, y = 0)) +
+  stat_halfeye(.width = c(.5, .95), normalize = "panels") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  xlab("marginal posterior for incon") +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ name, scales = "free")
+```
+
+## Intermezzo: priors
+
+Simulate from Normal(0,4) and transform the draws back into the probability metric.
+
+```{r}
+set.seed(11)
+
+tibble(log_odds = rnorm(1e6, mean = 0, sd = 4)) %>% 
+  mutate(p = inv_logit_scaled(log_odds)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+This makes no sense for hazard models...
+
+Compare three standard deviations.
+
+```{r}
+set.seed(11)
+
+tibble(sd = c(2, 1.5, 1)) %>% 
+  mutate(log_odds = map(sd, ~rnorm(1e6, mean = 0, sd = .))) %>% 
+  unnest(log_odds) %>% 
+  mutate(sd = str_c("sd = ", sd),
+         p  = inv_logit_scaled(log_odds)) %>% 
+
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ sd)
+```
+
+The log-odds Normal(0,1) gently regularizes p towards .5, but still allows for stronger values. This might be a good prior to use for the beta parameters. The alpha parameters tend to drift toward the lower end of the probability range in general (i.e., they are typically below .5 in hazard space, also for RT studies). The log-odds Normal(0, 1.5) prior is nearly flat in probability space, but it does still push the mass away from the boundaries.
+
+Solomon Kurz proposes to simulate a large number of draws from the Uniform(0,1) distribution, convert those draws to the log-odds metric, and fit a Student's t model, if we want to stay within the Student-t familiy of priors, of which the normal is a special case (to gain a sense of what prior values would approximate a uniform distriubution on the probability scale).
+
+```{r}
+set.seed(11)
+log_odds <- function(p) {
+  log(p / (1 - p))
+}
+dat <- 
+  tibble(p = runif(1e5, 0, 1)) %>% 
+  mutate(g = log_odds(p)) 
+
+fit11.11 <-
+  brm(data = dat,
+      family = student,
+      g ~ 1,
+      chains = 4, cores = 4,
+      file = "models/fit11.11")
+```
+
+```{r}
+print(fit11.11)
+```
+
+Now we can reverse the process. Here’s what it would look like if we simulated from the Student  
+t-distribution based on those posterior means and then converted the results into the probability metric.
+
+```{r}
+set.seed(11)
+
+tibble(g = rt(1e6, df = 7.61) * 1.57) %>% 
+  mutate(p = inv_logit_scaled(g)) %>% 
+  
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+Fit a new model with separate priors for alpha and beta parameters.
+
+```{r}
+b1.general1_prime_prior <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15 + con +incon,
+      prior = c(prior(student_t(7.61, 0, 1.57), class = b), 
+                prior(normal(0, 1), class = b, coef = con), 
+                prior(normal(0, 1), class = b, coef = incon)),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      save_pars = save_pars(all=TRUE),
+      seed = 11,
+      file = "models/b1.general1_prime_prior")
+```
+
+```{r}
+print(b1.general1_prime_prior)
+print(b1.general1_prime)
+```
+
+Extract estimates and odds ratios for con and incon.
+
+```{r}
+fixef(b1.general1_prime_prior)[11:12, ] %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+  mutate(`odds ratio` = exp(Estimate)) %>% 
+  select(predictor, Estimate, `odds ratio`) %>% 
+  mutate_if(is.double, round, digits = 3)
+```
+
+Perhaps we can use a similar strategy for hazard models, as experience suggests that hazard typically stays below .6 in empirical RT data: simulate a large number of draws from various beta(x,y) distributions, convert those draws to the log-odds metric, and fit a generalized Student's t model...?? TODO.
+
+
+Now let's display fitted hazard and survivor functions. 
+
+First, we can create a table with the posterior means, ignoring uncertainty.
+
+```{r}
+tibble(time  = 6:15,
+       alpha = fixef(b1.general1_prime_prior)[1:10, 1],
+       beta_con  = fixef(b1.general1_prime_prior)[11, 1],
+       beta_incon  = fixef(b1.general1_prime_prior)[12, 1]) %>% 
+  mutate(lh0 = alpha, # logit-hazard
+         lh_con = alpha + beta_con,
+         lh_incon = alpha + beta_incon) %>% 
+  mutate(h0 = inv_logit_scaled(lh0), # hazard
+         h_con = inv_logit_scaled(lh_con),
+         h_incon = inv_logit_scaled(lh_incon)) %>% 
+  mutate(s0 = cumprod(1 - h0), # survival probabilities
+         s_con = cumprod(1 - h_con),
+         s_incon = cumprod(1 - h_incon)) %>% 
+  # this just simplifies the output
+  mutate_if(is.double, round, digits = 4)
+```
+
+To make a plot, we go beyond posterior means and reintroduce the uncertainty in the model.
+
+For the disaggregated (ptb) data used to fit b1.general1_prime_prior model, here is how we might define the newdata, pump it through the model using fitted(), and wrangle.
+
+```{r}
+nd <-
+  crossing(incon   = 0:1,
+           con = 0:1,
+           period = 6:15) %>% 
+  filter(!(con == 1 & incon == 1)) %>%
+  mutate(condition = rep(c("Neutral","Congruent","Incongruent"),each=10),
+         condition = factor(condition)) %>%
+  mutate(d6  = if_else(period == 6, 1, 0),
+         d7  = if_else(period == 7, 1, 0),
+         d8  = if_else(period == 8, 1, 0),
+         d9  = if_else(period == 9, 1, 0),
+         d10 = if_else(period == 10, 1, 0),
+         d11 = if_else(period == 11, 1, 0),
+         d12 = if_else(period == 12, 1, 0),
+         d13 = if_else(period == 13, 1, 0),
+         d14 = if_else(period == 14, 1, 0),
+         d15 = if_else(period == 15, 1, 0))
+
+f <-
+  fitted(b1.general1_prime_prior,
+         newdata = nd,
+         scale = "linear") %>% 
+  data.frame() %>% 
+  bind_cols(nd) #%>% 
+  #mutate(con = str_c("con = ", con),
+  #       incon = str_c("incon = ", incon))
+
+f
+```
+
+Now make a plot.
+
+```{r}
+# logit(hazard)
+p1 <-
+  f %>% 
+  
+  ggplot(aes(x = period, group = condition,
+             fill = condition, color = condition)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = Estimate)) +
+  labs(subtitle = "fitted logit(hazard)",
+       y = NULL) +
+  coord_cartesian(ylim = c(-4, 1)) +
+  theme(legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(color = "grey92"),
+        legend.position = "inside",
+        legend.position.inside = c(.1, .74))
+
+# hazard
+p2 <-
+  f %>% 
+  mutate_at(vars(Estimate, Q2.5, Q97.5), .funs = inv_logit_scaled) %>% 
+  
+  ggplot(aes(x = period, group = condition,
+             fill = condition, color = condition)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = Estimate)) +
+  labs(subtitle = "fitted hazard",
+       y = NULL) +
+  coord_cartesian(ylim = c(0, .7)) +
+  theme(legend.position = "none")
+
+# survival
+p3 <-
+  f %>% 
+  mutate_at(vars(Estimate, Q2.5, Q97.5), .funs = inv_logit_scaled) %>% 
+  group_by(condition) %>% 
+  mutate(s       = cumprod(1 - Estimate),
+         s_lower = cumprod(1 - Q2.5),
+         s_upper = cumprod(1 - Q97.5)) %>% 
+  ungroup() %>%
+  #select(period:d15, s:s_upper)
+  
+  ggplot(aes(x = period, group = condition,
+             fill = condition, color = condition)) +
+  geom_hline(yintercept = .5, color = "white") +
+  #geom_segment(x = imls[1], xend = imls[1],
+  #             y = -Inf, yend = .5,
+  #             color = "white", linetype = 2) +
+  #geom_segment(x = imls[2], xend = imls[2],
+  #             y = -Inf, yend = .5,
+  #             color = "white", linetype = 2) +
+  geom_ribbon(aes(ymin = s_lower, ymax = s_upper),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = s)) + 
+  scale_y_continuous(NULL, breaks = c(0, .5, 1)) +
+  labs(subtitle = "fitted survival probability") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(legend.position = "none")
+```
+
+```{r}
+(p1 / p2 / p3) &
+  scale_fill_viridis_d(NULL, option = "A", end = .6) &
+  scale_color_viridis_d(NULL, option = "A", end = .6) &
+  scale_x_continuous("Time bin rank", breaks = 6:15, limits = c(6, 15)) &
+  theme(panel.grid = element_blank())
+```
+
+## Compare models with loo
+
+## Test the proportionality assumption
+
+## Add trial number as a predictor and test linearity and additivity assumptions
+
+## Fit maximal multilevel model
+
+
 
 
 
