@@ -39,7 +39,9 @@ install.packages("devtools")
 devtools::install_github("jmgirard/standist")
  
 install.packages(c("brms", "tidybayes", "bayesplot", "future"))
-```
+
+install.packages("sn") # to sample from skew-normal distribution
+
 
 packages for papaja and manuscript writing
 
