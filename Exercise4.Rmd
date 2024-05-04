@@ -376,6 +376,11 @@ set.seed(11)
 log_odds <- function(p) {
   log(p / (1 - p))
 }
+odds <- function(p) {
+  p/(1-p)
+}
+
+
 dat <- 
   tibble(p = runif(1e5, 0, 1)) %>% 
   mutate(g = log_odds(p)) 
@@ -714,22 +719,1100 @@ p3 <-
   labs(subtitle = "fitted survival probability") +
   coord_cartesian(ylim = c(0, 1)) +
   theme(legend.position = "none")
+
+p4 <-
+  f %>% 
+  mutate_at(vars(Estimate, Q2.5, Q97.5), .funs = exp) %>% 
+  
+  ggplot(aes(x = period, group = condition,
+             fill = condition, color = condition)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = Estimate)) +
+  labs(subtitle = "fitted odds(hazard)",
+       y = NULL) +
+  coord_cartesian(ylim = c(0, 2)) +
+  theme(legend.position = "none")
 ```
 
 ```{r}
-(p1 / p2 / p3) &
+(p1 / p2 / p3 / p4) &
   scale_fill_viridis_d(NULL, option = "A", end = .6) &
   scale_color_viridis_d(NULL, option = "A", end = .6) &
-  scale_x_continuous("Time bin rank", breaks = 6:15, limits = c(6, 15)) &
+  scale_x_continuous("Time bin rank", breaks = 6:15, limits = c(6, 15), labels=c(6:15*40)) &
   theme(panel.grid = element_blank())
 ```
 
-## Compare models with loo
+## Compare models using information criteria
 
-## Test the proportionality assumption
+```{r}
+log_lik(b0.general1) %>% # 8000 x 12840 pointwise log-likelihood samples
+  str()
+```
 
-## Add trial number as a predictor and test linearity and additivity assumptions
+Calculate LL and deviance for each sample.
 
+```{r}
+ll <-
+  b0.general1 %>%
+  log_lik() %>%
+  as_tibble(.name_repair = ~ str_c("c", 1:12840)) %>%
+  mutate(ll = rowSums(.)) %>% 
+  mutate(deviance = -2 * ll) %>% 
+  select(ll, deviance, everything())
+
+ll
+```
+
+```{r}
+ll %>%
+  pivot_longer(ll:deviance) %>% 
+  mutate(name = factor(name, levels = c("ll", "deviance"))) %>% 
+  
+  ggplot(aes(x = value, y = 0)) +
+  stat_halfeye(point_interval = median_qi, .width = .95, normalize = "panels") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  xlab(NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ name, scales = "free")
+```
+
+For all three models:
+
+```{r}
+ll <-
+  tibble(model = str_c("model ", letters[1:3]),
+         name  = c("b0.general1","b1.general1_prime", "b1.general1_prime_prior")) %>% 
+  mutate(fit = map(name, get)) %>% 
+  mutate(ll = map(fit, ~log_lik(.) %>% data.frame() %>% transmute(ll = rowSums(.)))) %>% 
+  select(-fit) %>% 
+  unnest(ll) %>% 
+  mutate(deviance = -2 * ll)
+
+ll %>% 
+  glimpse()
+```
+
+
+```{r}
+ll %>%
+  pivot_longer(ll:deviance,
+               names_to = "statistic") %>% 
+  mutate(statistic = factor(statistic, levels = c("ll", "deviance"))) %>% 
+  
+  ggplot(aes(x = value, y = model)) +
+  stat_halfeye(point_interval = median_qi, .width = .95, normalize = "panels") +
+  labs(x = NULL,
+       y = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ statistic, scales = "free_x")
+```
+
+Using WAIC and LOO for comparing nonnested models.
+
+```{r}
+b0.general1  <- add_criterion(b0.general1, c("loo", "waic"))
+b1.general1_prime  <- add_criterion(b1.general1_prime, c("loo", "waic"))
+b1.general1_prime_prior  <- add_criterion(b1.general1_prime_prior, c("loo", "waic"))
+```
+
+Compare models a and b:
+
+```{r}
+loo_compare(b0.general1, b1.general1_prime, criterion = "loo") %>% print(simplify = F)
+loo_compare(b0.general1, b1.general1_prime, criterion = "waic") %>% print(simplify = F)
+```
+
+Compare all three models:
+
+```{r}
+loo_compare(b0.general1, b1.general1_prime, b1.general1_prime_prior, criterion = "loo") %>% print(simplify = F)
+loo_compare(b0.general1, b1.general1_prime, b1.general1_prime_prior, criterion = "waic") %>% print(simplify = F)
+```
+
+```{r}
+model_weights(b0.general1, b1.general1_prime, b1.general1_prime_prior, weights = "loo") %>% round(digits = 3)
+
+model_weights(b0.general1, b1.general1_prime, b1.general1_prime_prior, weights = "waic") %>% round(digits = 3)
+
+model_weights(b0.general1, b1.general1_prime, b1.general1_prime_prior, weights = "stacking") %>% round(digits = 3)
+```
+
+Plot marginal posteriors of model b:
+
+```{r}
+draws <- as_draws_df(b1.general1_prime)
+
+draws %>% 
+  pivot_longer(b_con:b_incon) %>% 
+  
+  ggplot(aes(x = value, y = name, fill = after_stat(x > 0))) +
+  stat_slab() +
+  scale_fill_manual(values = c("blue3", "red3")) +
+  labs(x = "marginal posterior",
+       y = NULL) +
+  coord_cartesian(ylim = c(1.5, 2.5)) +
+  theme(panel.grid = element_blank())
+```
+
+What proportion of posterior draws is zero or below?
+
+```{r}
+draws %>% 
+  pivot_longer(b_con:b_incon) %>% 
+  group_by(name) %>% 
+  summarise(`percent zero or below` = 100 * mean(value <= 0))
+```
+
+95% Bayesian credible intervals 
+
+```{r}
+fixef(b1.general1_prime)
+
+```
+
+95% highest density intervals
+
+```{r}
+draws %>% 
+  pivot_longer(b_con:b_incon) %>% 
+  group_by(name) %>% 
+  mean_hdi(value)
+```
+
+Transform posterior credible intervals to odds-ratio metric
+
+```{r}
+fixef(b1.general1_prime)[c("con", "incon"), -2] %>% exp()
+```
+
+```{r}
+draws %>% 
+  pivot_longer(b_con:b_incon) %>% 
+  mutate(`odds ratio` = exp(value)) %>% 
+  
+  ggplot(aes(x = `odds ratio`, y = name)) +
+  stat_interval(size = 5, .width = seq(from = .1, to = .9, by = .2)) +
+  scale_color_grey("CI level:", start = .8, end = .2) +
+  scale_x_continuous(breaks = 0:3) +
+  ylab(NULL) +
+  coord_cartesian(xlim = c(0, 3)) +
+  theme(legend.position = "top",
+        panel.grid = element_blank())
+```
+
+# Extending the discrete-time hazard model.
+
+## Alternative specifications for the effect of TIME
+
+The use of a completely general specification for the effect of TIME is an analytic decision.
+
+Count right-censored trials
+
+```{r}
+ptb_data_ind %>% 
+  group_by(trial) %>% 
+  arrange(desc(period)) %>% 
+  slice(1) %>%
+  ungroup() %>% 
+  count(event) %>% 
+  mutate(percent = 100 * n / sum(n))
+```
+
+```{r}
+head(ptb_data_ind)
+# change name for trials
+
+
+
+# constant
+b2.constant <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 1,
+      prior(normal(0, 4), class = Intercept),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b2.constant")
+
+# linear
+b2.linear <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + Intercept + period,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b2.linear")
+
+# quadratic
+b2.quad <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + Intercept + period + I(period^2),
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b2.quad")
+
+# cubic
+b2.cubic <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + Intercept + period + I(period^2) + I(period^3),
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b2.cubic")
+
+# fourth order
+b2.quartic4 <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + Intercept + period + I(period^2) + I(period^3) + I(period^4),
+      prior(normal(0, 3), class = b),
+      chains = 4, cores = 8, iter = 5000, warmup = 1000,
+      control = list(max_treedepth = 14),
+      seed = 12,
+      file = "models/b2.quartic4")
+
+# fifth order
+b2.quintic <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + Intercept + period + I(period^2) + I(period^3) + I(period^4) + I(period^5),
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      control = list(max_treedepth = 14),
+      seed = 12,
+      init = 0,
+      file = "models/b2.quintic")
+
+# general
+b2.general <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9+ d10 + d11 + d12 + d13 + d14 + d15,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b2.general")
+
+# general with `factor(period)`
+b2.factor <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + period_factor,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b2.factor")
+```
+
+check fits
+
+```{r}
+summary(b2.constant)
+print(b2.linear)
+print(b2.quad)
+print(b2.cubic)
+print(b2.quartic) # Parts of the model have not converged. Increase iterations / stronger priors
+print(b2.quintic) # Divergent transitions (increase adapt_delta above 0.8) + parts not converged
+print(b2.general)
+print(b2.factor)
+
+print(b2.quartic2) # more iterations
+print(b2.quartic3) # more iterations and max_treedepth =12
+```
+
+
+Inspect hazard functions
+
+```{r}
+p2 <- plot(conditional_effects(b2.linear), plot = F)[[1]] + ggtitle("linear")
+p3 <- plot(conditional_effects(b2.quad), plot = F)[[1]] + ggtitle("quadratic")
+p4 <- plot(conditional_effects(b2.cubic), plot = F)[[1]] + ggtitle("cubic")
+#p5 <- plot(conditional_effects(b2.quartic3), plot = F)[[1]] + ggtitle("fourth order")
+#p6 <- plot(conditional_effects(b2.quintic), plot = F)[[1]] + ggtitle("fifth order")
+p7 <- plot(conditional_effects(b2.factor), 
+           cat_args = list(size = 3/2), 
+           plot = F)[[1]] + ggtitle("general")
+
+p1 <-
+  tibble(period = 6:15) %>% 
+  ggplot(aes(x = period)) +
+  geom_ribbon(aes(ymin = fixef(b2.constant)[, 3] %>% inv_logit_scaled(),
+                  ymax = fixef(b2.constant)[, 4] %>% inv_logit_scaled()),
+              alpha = 1/5) +
+  geom_line(aes(y = fixef(b2.constant)[, 1] %>% inv_logit_scaled()),
+            linewidth = 1, color = "blue1") +
+  ggtitle("constant") +
+  ylab("event | trials(1)")
+
+
+library(patchwork)
+
+(((p1 + p2 + p3 + p4) & scale_x_continuous(breaks = 6:15)) + p7) &
+  coord_cartesian(ylim = c(0, 1)) &
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+b2.constant <- add_criterion(b2.constant, criterion = c("loo", "waic"))
+b2.linear   <- add_criterion(b2.linear,   criterion = c("loo", "waic"))
+b2.quad     <- add_criterion(b2.quad,     criterion = c("loo", "waic"))
+b2.cubic    <- add_criterion(b2.cubic,    criterion = c("loo", "waic"))
+b2.general  <- add_criterion(b2.general,  criterion = c("loo", "waic"))
+b2.factor   <- add_criterion(b2.factor,   criterion = c("loo", "waic"))
+```
+
+Compare dummy and factor models
+
+```{r}
+loo_compare(b2.general, b2.factor, criterion = "loo") %>% print(simplify = F)
+loo_compare(b2.general, b2.factor, criterion = "waic") %>% print(simplify = F)
+```
+
+Compare polynomial specifications with general
+
+```{r}
+loo_compare(b2.constant, b2.linear, b2.quad, b2.cubic, b2.general, criterion = "loo") %>% 
+  print(simplify = F)
+loo_compare(b2.constant, b2.linear, b2.quad, b2.cubic, b2.general, criterion = "waic") %>% 
+  print(simplify = F)
+```
+
+Model weights:
+
+```{r}
+model_weights(b2.constant, b2.linear, b2.quad, b2.cubic, b2.general, weights = "loo") %>% 
+  round(digits = 3)
+model_weights(b2.constant, b2.linear, b2.quad, b2.cubic, b2.general, weights = "waic") %>% 
+  round(digits = 3)
+model_weights(b2.constant, b2.linear, b2.quad, b2.cubic, b2.general, weights = "stacking") %>% 
+  round(digits = 3)
+```
+
+Compare models in a graph
+
+```{r}
+make_fitted <- function(fit, scale, ...) {
+  
+  fitted(fit,
+         newdata = nd,
+         scale = scale,
+         ...) %>% 
+    data.frame() %>% 
+    bind_cols(nd)
+}
+```
+
+Plot fitted logit(hazard) - scale = linear
+
+```{r}
+nd <- tibble(period_factor = 6:15)
+
+f <- make_fitted(b2.factor, scale = "linear") %>% rename(period = period_factor)
+
+# this will simplify the `mutate()` code below
+models <- c("constant", "linear", "quadratic", "cubic", "general")
+
+nd <- tibble(period = 6:15)
+
+f <-
+  bind_rows(make_fitted(b2.constant, scale = "linear"),  # constant
+            make_fitted(b2.linear, scale = "linear"),  # linear
+            make_fitted(b2.quad, scale = "linear"),  # quadratic
+            make_fitted(b2.cubic, scale = "linear"),  # cubic
+            f) %>%                                   # general
+  mutate(model = factor(rep(models, each = 10),
+                        levels = models))
+
+# what have we done?
+glimpse(f)
+```
+
+```{r}
+p1 <-
+  f %>% 
+  ggplot(aes(x = period, y = Estimate, color = model)) +
+  geom_line() +
+  scale_color_viridis_d(option = "A", direction = -1) +
+  ylab("Fitted logit(hazard)") +
+  coord_cartesian(ylim = c(-4, 1)) +
+  theme(panel.grid = element_blank())
+```
+
+Plot fitted hazard
+
+```{r}
+nd <- tibble(period_factor = 6:15)
+
+f <- make_fitted(b2.factor, scale = "response") %>% rename(period = period_factor)
+
+nd <- tibble(period = 6:15)
+
+f <-
+  bind_rows(make_fitted(b2.constant, scale = "response"),  # constant
+            make_fitted(b2.linear, scale = "response"),  # linear
+            make_fitted(b2.quad, scale = "response"),  # quadratic
+            make_fitted(b2.cubic, scale = "response"),  # cubic
+            f) %>%                                     # general
+  mutate(model = factor(rep(models, each = 10),
+                        levels = models))
+```
+
+```{r}
+p2 <-
+  f %>% 
+  filter(model %in% c("quadratic", "general")) %>% 
+  
+  ggplot(aes(x = period, y = Estimate, color = model)) +
+  geom_line() +
+  scale_color_viridis_d(option = "A", end = .5, direction = -1) +
+  ylab("Fitted hazard") +
+  coord_cartesian(ylim = c(0, .5)) +
+  theme(legend.position = "none",
+        panel.grid = element_blank())
+```
+
+Fitted survivor functions
+
+```{r}
+p3 <-
+  f %>% 
+  filter(model %in% c("quadratic", "general")) %>% 
+  select(Estimate, period, model) %>% 
+  # add the `new_rows` data
+  #bind_rows(new_rows) %>%
+  arrange(model, period) %>%
+  group_by(model) %>% 
+  # convert hazards to survival probabilities
+  mutate(Estimate = cumprod(1 - Estimate)) %>%
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, color = model)) +
+  geom_hline(yintercept = .5, color = "white") +
+  geom_line() +
+  scale_color_viridis_d(option = "A", end = .5, direction = -1) +
+  scale_y_continuous("Fitted survival probability", breaks = c(0, .5, 1)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(legend.position = "none",
+        panel.grid = element_blank())
+```
+
+```{r}
+p1 + p2 + p3 + 
+  plot_layout(guides = "collect") &
+  scale_x_continuous("Time bin", breaks = 6:15, limits = c(6, 15))
+```
+
+Compare model pairs
+
+```{r}
+# the constant and linear models
+l1 <- loo_compare(b2.constant, b2.linear, criterion = "loo")
+
+# the linear and quadratic models
+l2 <- loo_compare(b2.linear, b2.quad, criterion = "loo")
+
+# the quadratic and general models
+l3 <- loo_compare(b2.quad, b2.general, criterion = "loo")
+
+l1 %>% print(simplify = F)
+l2 %>% print(simplify = F)
+l3 %>% print(simplify = F)
+```
+
+If we presume the LOO differences follow a normal distribution, we can use their point estimates and standard errors to plot those distributions using simulated data from good old rnorm().
+
+```{r}
+library(tidybayes)
+
+n <- 1e6
+models <- c("linear - constant", "quadratic - linear", "quadratic - general")
+set.seed(12)
+
+# wrangle
+tibble(loo_difference = c(rnorm(n, mean = l1[2, 1] * -2, sd = l1[2, 2] * 2),
+                          rnorm(n, mean = l2[2, 1] * -2, sd = l2[2, 2] * 2),
+                          rnorm(n, mean = l3[2, 1] * -2, sd = l3[2, 2] * 2))) %>% 
+  mutate(models = factor(rep(models, each = n),
+                         levels = models)) %>% 
+  
+  # plot!
+  ggplot(aes(x = loo_difference, y = 0)) +
+  stat_halfeye(.width = c(.5, .95), normalize = "panels") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(title = "LOO-difference simulations based on 1,000,000 draws",
+       x = "difference distribution") +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ models, scales = "free")
+```
+
+The LOO difference for the linear and constant models is decisive. 
+
+The difference for the quadratic and linear models is fairly large on the information-criteria scale, and the uncertainty in that distribution is fairly small relative to its location (i.e., its mean), which leads to the conclusion that the quadratic is better compared to the linear. 
+
+The comparison between the quadratic and the general produced a simulation with a modest location and rather large uncertainty relative to the magnitude of that location. All in all, “all signs point to the superiority of the quadratic specification, which fits nearly as well as the general mode, but with fewer parameters” (p. 416).
+
+Compare cubic and quadratic
+
+```{r}
+loo_compare(b2.quad, b2.cubic, criterion = "loo") %>% print(simplify = F)
+loo_compare(b2.quad, b2.cubic, criterion = "waic") %>% print(simplify = F)
+```
+
+the cubic model has a slightly lower LOO and WAIC estimate compared to the quadratic. However, the standard errors for the formal difference score are about twice the size of that difference and the absolute magnitude of the difference is rather small to begin with. 
+Here’s what it looks like if we compare them using LOO weights, WAIC weights, and stacking weights.
+
+```{r}
+model_weights(b2.quad, b2.cubic, weights = "loo") %>% round(digits = 3)
+model_weights(b2.quad, b2.cubic, weights = "waic") %>% round(digits = 3)
+model_weights(b2.quad, b2.cubic, weights = "stacking") %>% round(digits = 3)
+```
+
+two guidelines for selecting among alternative specifications:
+
+If a smooth specification works nearly as well as the completely general one, appreciably better than all simpler ones, and no worse than all more complex ones, consider adopting it.
+If no smooth specifications meet these criteria, retain the completely general specification.
+
+Model averaging:
+
+Before moving on, we might point out that our Bayesian brms-based framework offers a different option: model averaging. We plot the hazard and survival curves based on weighted averages of multiple models. The weights can be based on various criteria. One approach would be to use the model weights from the LOO or the WAIC. As an example, here we use the LOO weights for the quadratic and cubic models.
+
+```{r}
+nd <- tibble(period = 6:15)
+
+pp <-
+  pp_average(b2.quad, b2.cubic,
+             weights = "loo",
+             newdata = nd,
+             method = "pp_expect") %>% 
+  data.frame() %>% 
+  bind_cols(nd)
+```
+
+The pp_average() function works much like fitted() or predict(). If you input models and perhaps newdata, it will return estimates that are the weighted averages of the specified models. With the weights = "loo" argument, we indicated our desired weights were those from the LOO, just as we computed earlier with the model_weights() function. With the method = "pp_expect" argument, we indicated we wanted fitted values like we would get from fitted().
+
+```{r}
+# hazard
+p1 <-
+  pp %>% 
+  ggplot(aes(x = period)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              alpha = 1/5) +
+  geom_line(aes(y = Estimate)) +
+  scale_x_continuous("Time bin", breaks = 6:15, limits = c(6, 15)) +
+  ylab("hazard") +
+  theme(panel.grid = element_blank())
+
+# survival
+p2 <-
+  pp %>% 
+  select(-Est.Error) %>% 
+  #bind_rows(tibble(Estimate = 0, Q2.5 = 0, Q97.5 = 0, period = 0)) %>% 
+  arrange(period) %>% 
+  mutate_at(vars(Estimate:Q97.5), .funs = ~ cumprod(1 - .)) %>% 
+  
+  ggplot(aes(x = period)) +
+  geom_hline(yintercept = .5, color = "white") +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              alpha = 1/5) +
+  geom_line(aes(y = Estimate)) +
+  scale_x_continuous("Time bin", breaks = 6:15) +
+  scale_y_continuous("survival", breaks = c(0, .5, 1), limits = c(0, 1)) +
+  theme(panel.grid = element_blank())
+
+# combine
+(p1 | p2) + 
+  plot_annotation(title = "Behold the fitted hazard and survival curves based on a weighted\naverage of the quadratic and cubic models!")
+```
+
+Interpreting parameters from linear, quadratic, and cubic specifications.
+
+For the polynomial models in this section, Singer and Willett used the  
+TIME−c  specification for period where  c
+  is a centering constant. 
+  
+```{r}
+ptb_data_ind <-
+  ptb_data_ind %>% 
+  mutate(period_9 = period - 9)
+
+# how do the two `period` variables compare?
+ptb_data_ind %>% 
+  distinct(period, period_9)
+```
+
+```{r}
+b2.quad.centered <-
+  update(b2.quad,
+         newdata = ptb_data_ind,
+         event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2),
+         chains = 4, cores = 8, iter = 3000, warmup = 1000,
+         seed = 12,
+         file = "models/b2.quad.centered")
+```
+
+```{r}
+print(b2.quad.centered)
+```
+
+The “flipover point” is the point at which the quadratic function reaches its peak or trough. Using posterior samples:
+
+```{r}
+as_draws_df(b2.quad.centered) %>% 
+  transmute(c  = 9,
+            a1 = b_period_9,
+            a2 = b_Iperiod_9E2) %>% 
+  mutate(`flipover point` = c - 0.5 * (a1 / a2)) %>% 
+  
+  ggplot(aes(x = `flipover point`, y = 0)) +
+  stat_halfeye(.width = c(.5, .95)) +
+  scale_x_continuous(breaks = 6:15, limits = c(11,13)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+Just as each parameter has a posterior distribution, the flipover point, which is a function of two of the parameters, also has a posterior distribution. To understand what this flipover distribution means, it might be helpful to look at it in another way. For that, we’ll employ fitted().
+
+```{r}
+nd <- 
+  tibble(period = seq(from = 6, to = 15, by = .1)) %>% 
+  mutate(period_9 = period - 9)
+
+f <-
+  fitted(b2.quad.centered,
+         newdata = nd,
+         summary = F,
+         scale = "linear") %>% 
+  data.frame() %>% 
+  pivot_longer(everything()) %>% 
+  bind_cols(expand(nd,
+                   iter = 1:8000,
+                   nesting(period, period_9)))
+
+f %>% 
+  glimpse()
+```
+
+Logit hazard spaghetti plot
+
+```{r}
+f %>% 
+  # how many lines would you like?
+  filter(iter <= 60) %>% 
+  
+  ggplot(aes(x = period, y = value, group = iter)) +
+  geom_line(alpha = 1/2) +
+  ylab("logit hazard") +
+  coord_cartesian(xlim = c(6, 15),
+                  ylim = c(-4, 0)) +
+  theme(panel.grid = element_blank())
+```
+
+Now fit a cubic model using period_9, as the measure of time.
+
+```{r}
+b2.cubic.centered <-
+  update(b2.cubic,
+         newdata = ptb_data_ind,
+         event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + I(period_9^3),
+         chains = 4, cores = 8, iter = 3000, warmup = 1000,
+         seed = 12,
+         file = "models/b2.cubic.centered")
+```
+
+```{r}
+print(b2.cubic.centered)
+```
+
+```{r}
+# extract the posterior draws
+draws <-
+  as_draws_df(b2.cubic.centered) %>% 
+  transmute(c  = 9,
+            a1 = b_period_9,
+            a2 = b_Iperiod_9E2,
+            a3 = b_Iperiod_9E3)
+
+# flipover point with "+" in the numerator
+p1 <-
+  draws %>% 
+  mutate(`flipover point 1` = c + (- a2 + sqrt(a2^2 - 3 * a1 * a3)) / (3 * a3)) %>% 
+  filter(!is.na(`flipover point 1`)) %>% 
+  filter(`flipover point 1` > -50 & `flipover point 1` < 50) %>% 
+  
+  ggplot(aes(x = `flipover point 1`, y = 0)) +
+  stat_halfeyeh(.width = c(.5, .95),) +
+  annotate(geom = "text",
+           x = -30, y = .85,
+           label = "italic(c)+frac(-alpha[2]+sqrt(alpha[2]^2-3*alpha[1]*alpha[3]), 3*alpha[3])",
+           hjust = 0, family = "Times", parse = T) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  coord_cartesian(xlim = c(-50, 20))
+
+# flipover point with "-" in the numerator
+p2 <-
+  draws %>% 
+  mutate(`flipover point 2` = c + (- a2 - sqrt(a2^2 - 3 * a1 * a3)) / (3 * a3)) %>% 
+  filter(!is.na(`flipover point 2`)) %>% 
+  
+  ggplot(aes(x = `flipover point 2`, y = 0)) +
+  stat_halfeyeh(.width = c(.5, .95)) +
+  annotate(geom = "text",
+           x = 9.2, y = .85,
+           label = "italic(c)+frac(-alpha[2]-sqrt(alpha[2]^2-3*alpha[1]*alpha[3]), 3*alpha[3])",
+           hjust = 0, family = "Times", parse = T) +
+  scale_y_continuous(NULL, breaks = NULL)
+
+# combine!
+(p1 | p2) & theme(panel.grid = element_blank())
+```
+
+```{r}
+# redifine the `newdata`
+nd <- 
+  tibble(period = seq(from = -40, to = 15, by = .1)) %>% 
+  mutate(period_9 = period - 9)
+
+# employ `fitted()` and wrangle
+f <-
+  fitted(b2.cubic.centered,
+         newdata = nd,
+         summary = F,
+         scale = "linear") %>% 
+  data.frame() %>% 
+  pivot_longer(everything()) %>% 
+  bind_cols(expand(nd,
+                   iter = 1:8000,
+                   nesting(period, period_9)))
+
+# plot!
+f %>% 
+  filter(iter <= 30) %>% 
+  ggplot(aes(x = period, y = value, group = iter)) +
+  geom_line(alpha = 1/2) +
+  ylab("logit hazard") +
+  coord_cartesian(xlim = c(-40, 15),
+                  ylim = c(-100, 100)) +
+  theme(panel.grid = element_blank())
+```
+
+On the region to the right of 0 on the x-axis, the plot looks a lot like the one for the quadratic model. But look at how wildly the lines fan out on the left side of 0. Since that’s the region where we find the second flipover point, all that uncertainty got baked into its marginal posterior. Just because I think it looks cool, here’s a version of that plot with lines corresponding to all 4,000 posterior draws.
+ 
+```{r}
+f %>% 
+  ggplot(aes(x = period, y = value, group = iter)) +
+  geom_line(alpha = 1/10, linewidth = 1/10) +
+  ylab("logit hazard") +
+  coord_cartesian(xlim = c(-40, 15),
+                  ylim = c(-25, 25)) +
+  theme(panel.grid = element_blank())
+```
+
+## cloglog 
+
+the clog-log transformation yields the logarithm of the negated logarithm of the probability of event nonoccurrence
+
+```{r}
+# simulate the data
+tibble(p = seq(from = .00001, to = .99999, length.out = 1e4)) %>% 
+  mutate(logit   = log(p / (1 - p)),
+         cloglog = log(-log(1 - p))) %>% 
+  pivot_longer(-p) %>% 
+  mutate(name = factor(name,
+                       levels = c("logit", "cloglog"),
+                       labels = c("Logit", "Complementary log-log"))) %>% 
+  
+  # plot
+  ggplot(aes(x = p, y = value, color = name)) +
+  geom_hline(yintercept = 0, color = "white") +
+  geom_line(linewidth = 1) +
+  scale_color_viridis_d(NULL, option = "A", end = .6) +
+  scale_y_continuous("transformed hazard probability", 
+                     breaks = -3:3 * 5, limits = c(-15, 15)) +
+  xlab("hazard probability") +
+  theme(legend.background = element_rect(fill = "grey92"),
+        legend.key = element_rect(fill = "grey92", color = "grey92"),
+        legend.position = "inside",
+        legend.position.inside = c(.25, .85),
+        panel.grid = element_blank())
+```
+
+Both transformations extend to the full  
+−
+∞
+  to  
+∞
+  parameter space. But whereas the logit is symmetric around zero and has a memorable point corresponding to  p=.5  (i.e., 0), the clog-log is asymmetric and has a less-intuitive point corresponding to  
+p=.5  (i.e., -0.3665129). Though somewhat odd, the advantage of the clog-log is that
+it provides a discrete-time statistical model for hazard that has a built-in proportional hazards assumption, and not a proportional odds assumption (as in the case of the logit link). 
+
+Display sample hazard functions on different scales,” namely the logit and clog-log. 
+
+Little trick: Instead of life tables, we use 4 bayesian regression models with weakly-regularizing priors:
+
+```{r}
+## logit
+# con == 1 and incon == 0
+b3.neutral <-
+  brm(data = ptb_data_ind %>% filter(con == 0 & incon == 0),
+      family = binomial,
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b3.neutral")
+
+# con=1 and incon=0
+b3.con <-
+  brm(data = ptb_data_ind %>% filter(con == 1 & incon == 0),
+      family = binomial,
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b3.con")
+
+# con=0 and incon=1
+b3.incon <-
+  brm(data = ptb_data_ind %>% filter(con == 0 & incon == 1),
+      family = binomial,
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b3.incon")
+
+## clog-log
+# neutral
+b3.neutral.cloglog <-
+  brm(data = ptb_data_ind %>% filter(con == 0 & incon == 0),
+      family = binomial(link = cloglog),
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b3.neutral.cloglog")
+
+# con
+b3.con.cloglog <-
+  brm(data = ptb_data_ind %>% filter(con == 1 & incon==0),
+      family = binomial(link = cloglog),
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b3.con.cloglog")
+# incon
+b3.incon.cloglog <-
+  brm(data = ptb_data_ind %>% filter(con == 0 & incon==1),
+      family = binomial(link = cloglog),
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b3.incon.cloglog")
+
+```
+
+Before we can make our version of Figure 12.5, we will redefine our nd data for fitted(), pump our four fit objects into our custom make_fitted() function from earlier, and wrangle a little.
+
+```{r}
+nd <-
+  tibble(period = 6:15) %>% 
+  mutate(d6  = if_else(period == 6, 1, 0),
+         d7  = if_else(period == 7, 1, 0),
+         d8  = if_else(period == 8, 1, 0),
+         d9  = if_else(period == 9, 1, 0),
+         d10 = if_else(period == 10, 1, 0),
+         d11 = if_else(period == 11, 1, 0),
+         d12 = if_else(period == 12, 1, 0),
+         d13 = if_else(period == 13, 1, 0),
+         d14 = if_else(period == 14, 1, 0),
+         d15 = if_else(period == 15, 1, 0))
+
+f <-
+  bind_rows(make_fitted(b3.neutral, scale = "linear"),
+            make_fitted(b3.con, scale = "linear"),
+            make_fitted(b3.incon, scale = "linear"),
+            make_fitted(b3.neutral.cloglog, scale = "linear"),
+            make_fitted(b3.con.cloglog, scale = "linear"),
+            make_fitted(b3.incon.cloglog, scale = "linear")) %>% 
+  mutate(condition   = rep(str_c("cond = ", c(1:3, 1:3)), each = n() / 6),
+         link = rep(c("logit", "clog-log"), each = n() / 2))
+
+f %>% glimpse()
+```
+
+```{r}
+f %>% 
+  ggplot(aes(x = period, group = interaction(condition, link),
+             color = condition)) +
+  geom_line(aes(y = Estimate, linetype = link)) +
+  scale_color_viridis_d(NULL, option = "A", end = .6) +
+  scale_x_continuous("grade", breaks = 6:15, limits = c(6, 15)) +
+  ylab("transformed hazard probability") +
+  coord_cartesian(ylim = c(-6, 0)) +
+  theme(panel.grid = element_blank())
+```
+
+Now fit proper models to the data (logit vs. cloglog link)
+
+```{r}
+# logit
+b3.general.prime.logit <-
+  brm(data = ptb_data_ind,
+      family = binomial,
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15 + con + incon,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 11,
+      file = "models/b3.general.prime.logit")
+
+# clog-log
+b3.general.prime.cloglog <-
+  brm(data = ptb_data_ind,
+      family = binomial(link = cloglog),
+      event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15 + con + incon,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b3.general.prime.cloglog")
+```
+
+Compare posterior means:
+
+```{r}
+pars <-
+  bind_rows(fixef(b3.general.prime.logit)  %>% data.frame() %>% rownames_to_column("par"),
+            fixef(b3.general.prime.cloglog) %>% data.frame() %>% rownames_to_column("par")) %>% 
+  mutate(link = rep(c("logit", "clog-log"), each = n() / 2),
+         par  = factor(par, levels = c(str_c("d", 6:15), "con", "incon")))
+
+pars %>%
+  select(par, link, Estimate) %>% 
+  pivot_wider(names_from = link,
+              values_from = Estimate) %>% 
+  select(par, `clog-log`, logit) %>% 
+  mutate_if(is.double, round, digits = 4)
+```
+
+Compare in a coefficient plot
+
+```{r}
+pars %>% 
+  ggplot(aes(x = link, y = Estimate, ymin = Q2.5, ymax = Q97.5)) +
+  geom_pointrange() +
+  labs(x = NULL, 
+       y = "transformed hazard") +
+  coord_flip() +
+  theme(axis.text.y = element_text(hjust = 0),
+        panel.grid = element_blank()) +
+  facet_wrap(~ par, ncol = 1)
+```
+
+Instead of comparing them with deviance values, we will compare the two models using Bayesian information criteria. For simplicity, we’ll focus on the LOO.
+
+```{r}
+b3.general.prime.logit <- add_criterion(b3.general.prime.logit, c("loo", "waic"))
+b3.general.prime.cloglog <- add_criterion(b3.general.prime.cloglog, c("loo", "waic"))
+
+
+loo_compare(b3.general.prime.logit, b3.general.prime.cloglog, criterion = "loo") %>% print(simplify = F)
+```
+
+```{r}
+model_weights(b3.general.prime.logit, b3.general.prime.cloglog, weights = "loo") %>% round(digits = 3)
+```
+
+From a LOO perspective, they’re basically the same. The parameter summaries are also quite similar between the two models. A coefficient plot might make it easy to see. “Numerical similarity is common when fitting identical models with alternate link functions (and net risks of event occurrence are low) and suggests that choice of a link function should depend on other considerations” (p. 423).
+
+Convert estimates of both models into hazard metric
+
+```{r}
+pars %>% 
+  filter(par != "con" & par != "incon") %>% 
+  mutate(Estimate = if_else(str_detect(link, "logit"),
+                            1 / (1 + exp(-1 * Estimate)),
+                            1 - exp(-exp(Estimate)))) %>%
+  select(par, link, Estimate) %>% 
+  pivot_wider(names_from = link,
+              values_from = Estimate) %>% 
+  select(par, `clog-log`, logit) %>% 
+  mutate(`clog-log - logit` = `clog-log` - logit) %>% 
+  mutate_if(is.double, round, digits = 4)
+```
+
+Exponentiate the estimates for con gives odds vs. hazard ratio's:
+
+```{r}
+# left
+p1 <-
+  as_draws_df(b3.general.prime.logit) %>% 
+  ggplot(aes(x = b_con %>% exp(), y = 0)) +
+  stat_halfeye(.width = c(.5, .95), na.rm = T) +
+  scale_x_continuous("b_con (exponentiated)") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(title = "b3.general.prime.logit (logit link)",
+       subtitle = "Exponentiating this parameter yields an odds ratio.") +
+  coord_cartesian(xlim = c(1, 3)) +
+  theme(panel.grid = element_blank())
+
+# right
+p2 <-
+  as_draws_df(b3.general.prime.cloglog) %>% 
+  ggplot(aes(x = b_con %>% exp(), y = 0)) +
+  stat_halfeye(.width = c(.5, .95)) +
+  scale_x_continuous("b_con (exponentiated)", limits = c(1, 3)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(title = "b3.general.prime.cloglog (clog-log link)",
+       subtitle = "Exponentiating this parameter yields a hazard ratio.") +
+  theme(panel.grid = element_blank())
+
+# combine
+p1 | p2
+```
+
+## Time-varying predictors
+
+Skipped.
+
+## the linear additivity assumption: uncovering violations and simple solutions
+
+### Interactions between predictors
+
+There are at least two circumstances when a guided search for interactions is crucial:
+
+* When theory (or common sense!) suggests that two (or more) predictors will interact in the prediction of the outcome. If you hypothesize the existence of interactions a priori, your search will be targeted and efficient.
+* When examining the effects of “question” predictor(s), variables whose effects you intend to emphasize in your report. You need to be certain that these predictors’ effects do not differ according ot levels of other important predictors, lest you misinterpret your major findings.
+
+Let's add trial and block numbers to the data set.
+
+
+
+
+
+
+### nonlinear effects
+
+
+
+
+
+
+
+
+## The proportionality assumption
+
+
+## the no observed heterogeneiety assumption
+## residual analysis
+
+
+# ############
 ## Fit maximal multilevel model
 
 
