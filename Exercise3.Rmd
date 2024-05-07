@@ -85,6 +85,21 @@ Save the plots for each subject.
 map2(paste0("figures/figure_for_subject", data_final$pid, "_PanisSchmidt.pdf"), data_final$plot, ggsave)
 ```
 
+```{r save-file-hazard-modeling}
+input_modeling_hazard_PS2016 <- data_final %>% 
+                               select(pid, ptb_data) %>%  unnest(ptb_data) %>%
+                               select(pid,trial,bl,tr,condition,period,event)
+
+# save in folder data
+write_csv(input_modeling_hazard_PS2016, file="data/inputfile_hazard_modeling_PS2016.csv")
+```
+
+```{r}
+summary(input_modeling_hazard_PS2016) # 26602 obs.
+
+input_modeling_hazard_PS2016 %>% group_by(pid,event) %>% count() %>% ungroup() %>% group_by(event) %>% summarise(N = sum(n))
+```
+
 Now, assume all trials are independent, to fit bayesian hazard models without multilevel structure. Make 1 plot for all data.
 This requires a single pid, and a trial column that identifies each unique trial.
 

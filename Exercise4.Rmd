@@ -1789,35 +1789,283 @@ There are at least two circumstances when a guided search for interactions is cr
 * When theory (or common sense!) suggests that two (or more) predictors will interact in the prediction of the outcome. If you hypothesize the existence of interactions a priori, your search will be targeted and efficient.
 * When examining the effects of “question” predictor(s), variables whose effects you intend to emphasize in your report. You need to be certain that these predictors’ effects do not differ according ot levels of other important predictors, lest you misinterpret your major findings.
 
-Let's add trial and block numbers to the data set.
+Let's add trial to the model, and check for interactions between con and trial, and between incon and trial.
+
+```{r}
+dataPS <- read_csv("data/inputfile_hazard_modeling_PS2016.csv")
+
+head(dataPS)
+summary(dataPS) # trial for each subject / 71 bl and 22 tr within block / 26602 rows
+```
+
+```{r}
+dataPS <- dataPS %>% mutate(trial_c = (trial - 1000)/1000,
+                            period_9 = period - 9)
+
+dataPS <- dataPS %>% filter(period > 5) # 12840 rows left
+summary(dataPS)
 
 
 
+# create dummy variables for each time period and level of condition
+dataPS <- dataPS %>% 
+                    mutate(d6 = if_else(period == 6, 1, 0),
+                           d7 = if_else(period == 7, 1, 0),
+                           d8 = if_else(period == 8, 1, 0),
+                           d9 = if_else(period == 9, 1, 0),
+                           d10 = if_else(period == 10, 1, 0),
+                           d11 = if_else(period == 11, 1, 0),
+                           d12 = if_else(period == 12, 1, 0),
+                           d13 = if_else(period == 13, 1, 0),
+                           d14 = if_else(period == 14, 1, 0),
+                           d15 = if_else(period == 15, 1, 0),
+                           con = if_else(condition == 2, 1, 0),
+                           incon = if_else(condition == 3, 1, 0))
+head(dataPS)
+```
 
+Let's fit models with and without interactions.
 
+```{r}
+b4_general_nointeractions <-
+  brm(data = dataPS,
+      family = binomial(link="cloglog"),
+      event | trials(1) ~ 0 + d6 + d7+ d8 + d9 + d10  + d11  + d12  + d13  + d14  + d15  +  con + incon + trial_c,
+      prior(normal(0, 4), class = b),
+      chains = 4, cores = 8, iter = 3000, warmup = 1000,
+      seed = 12,
+      file = "models/b4_general_nointeractions")
 
-### nonlinear effects
+b4_general_interactions2 <-
+   brm(data = dataPS,
+       family = binomial(link="cloglog"),
+       event | trials(1) ~ 0 + d6+ d7 + d8 + d9 + d10  + d11  + d12  + d13  + d14  + d15 + con + incon + trial_c + con:trial_c + incon:trial_c,
+       prior(normal(0, 4), class = b),
+         chains = 4, cores = 8, iter = 3000, warmup = 1000,
+         seed = 12,
+         file = "models/b4_general_interactions2")
+```
 
+```{r}
+print(b4_general_nointeractions)
+print(b4_general_interactions2)
+fixef(b4_general_interactions2)[13,1]
+```
 
+```{r}
+b4_general_nointeractions <- add_criterion(b4_general_nointeractions, criterion = "waic")
+b4_general_interactions2 <- add_criterion(b4_general_interactions2, criterion = "waic")
 
+loo_compare(b4_general_nointeractions, b4_general_interactions2, criterion = "waic") %>% print(simplify = F)
+model_weights(b4_general_nointeractions, b4_general_interactions2, weights = "waic") %>% round(digits = 3)
+```
 
+Plot posterior distributions of hazard ratios for con and incon, for trials 500,1000, and 1500.
 
+```{r}
+as_draws_df(b4_general_interactions2) %>% # 8000 x 17 (b_d6, ... , )
+  expand_grid(incon = 0:1,
+              con  = 0:1,
+              trial_c = c(-0.5,0,0.5)) %>% # 96000 rows
+  filter(!(con ==1 & incon == 1)) %>% # 72000
 
+  
+  mutate(hr = exp(b_con * con + b_trial_c * trial_c  + `b_con:trial_c` * con * trial_c +
+                  b_incon * incon + `b_incon:trial_c` * incon * trial_c),
+         Condition       = rep(c("N","N","N","C","C","C","I","I","I"), 8000),
+         trial_C = str_c("trial_c=",trial_c*1000+1000)) %>% 
+  
+  ggplot(aes(x = hr, y = 0)) +
+  stat_halfeye(.width = .95, normalize = "panels") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_grid(Condition ~ trial_C)
+```
 
+Plot predicted cloglog(hazard)
 
-## The proportionality assumption
+```{r}
+# define the `newdata`
+nd <- tibble(period = 6:15) %>%
+    expand_grid(incon = 0:1,
+              con  = 0:1,
+              trial_c = c(-0.5,0,0.5)) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(d6 = if_else(period == 6, 1, 0),
+                           d7 = if_else(period == 7, 1, 0),
+                           d8 = if_else(period == 8, 1, 0),
+                           d9 = if_else(period == 9, 1, 0),
+                           d10 = if_else(period == 10, 1, 0),
+                           d11 = if_else(period == 11, 1, 0),
+                           d12 = if_else(period == 12, 1, 0),
+                           d13 = if_else(period == 13, 1, 0),
+                           d14 = if_else(period == 14, 1, 0),
+                           d15 = if_else(period == 15, 1, 0))
+  
 
+# use `fitted()` and wrangle
+make_fitted(b4_general_interactions2, scale = "response") %>% 
+  mutate(cond = rep(rep(c("N","C","I"),each=3),10)   ,
+         trial    = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500"))) %>% 
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, ymin = Q2.5, ymax = Q97.5,
+             fill = cond, color = cond)) +
+  geom_ribbon(alpha = 1/5, linewidth = 0) +
+  geom_line() +
+  scale_fill_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_color_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_x_continuous("bin", breaks = 6:15, limits = c(6, 15)) +
+  ylab("fitted cloglog(hazard)") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ trial)
+```
+
+### nonlinear effects (of trial number...)
+
+```{r}
+b4_general_interactions_nonlinear2 <-
+   brm(data = dataPS,
+       family = binomial(link="cloglog"),
+       event | trials(1) ~ 0 + d6+ d7 + d8 + d9 + d10  + d11  + d12  + d13  + d14  + d15 + con + incon + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c,
+       prior(normal(0, 4), class = b),
+         chains = 4, cores = 8, iter = 3000, warmup = 1000,
+         seed = 12,
+         file = "models/b4_general_interactions_nonlinear2")
+```
+
+```{r}
+print(b4_general_interactions_nonlinear)
+```
+
+```{r}
+b4_general_interactions_nonlinear <- add_criterion(b4_general_interactions_nonlinear, criterion = "waic")
+
+loo_compare(b4_general_nointeractions, b4_general_interactions, b4_general_interactions_nonlinear, criterion = "waic") %>% print(simplify = F)
+model_weights(b4_general_nointeractions, b4_general_interactions, b4_general_interactions_nonlinear, weights = "waic") %>% round(digits = 3)
+```
+
+## The proportionality assumption: test whether con and incon interact with time
+
+```{r}
+b4_general_interactions_nonlinear_noprop3 <-
+   brm(data = dataPS,
+       family = binomial(link="cloglog"),
+       event | trials(1) ~ 0 + d6+ d7 + d8 + d9 + d10  + d11  + d12  + d13  + d14  + d15 + con + con:period_9 + incon + incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c,
+       prior(normal(0, 4), class = b),
+         chains = 4, cores = 8, iter = 3000, warmup = 1000,
+         seed = 12,
+         file = "models/b4_general_interactions_nonlinear_noprop3")
+```
+
+```{r}
+print(b4_general_interactions_nonlinear_noprop3)
+```
+
+```{r}
+b4_general_interactions_nonlinear_noprop3 <- add_criterion(b4_general_interactions_nonlinear_noprop3, criterion = "waic")
+
+loo_compare(b4_general_nointeractions, b4_general_interactions, b4_general_interactions_nonlinear,b4_general_interactions_nonlinear_noprop3, criterion = "waic") %>% print(simplify = F)
+model_weights(b4_general_nointeractions, b4_general_interactions, b4_general_interactions_nonlinear, b4_general_interactions_nonlinear_noprop3, weights = "waic") %>% round(digits = 3)
+```
 
 ## the no observed heterogeneiety assumption
 ## residual analysis
 
+```{r}
+residuals(b4_general_interactions_nonlinear) %>% 
+  str()
+```
+
+Plot residuals for first 500 rows. 
+
+```{r}
+residuals(b4_general_interactions_nonlinear) %>% 
+  data.frame() %>% 
+  bind_cols(dataPS) %>% 
+  mutate(event = factor(event),
+         id = 1:n()) %>% 
+  
+  filter(id < 500) %>%
+  
+  ggplot(aes(x = id, y = Estimate, ymin = Estimate-Est.Error, ymax = Estimate+Est.Error, color = event)) +
+  geom_hline(yintercept = 0, color = "white") +
+  geom_pointrange(fatten = 3/4, alpha = 1/2) +
+  scale_color_viridis_d(option = "A", end = .6) +
+  ylab("residual") +
+  theme(legend.position = "top", 
+        panel.grid = element_blank()) 
+```
+
+Note. Our estimated stand. error of residuals is very high...
+
+Pull Pareto k estimates
+
+```{r}
+loo(b4_general_interactions_nonlinear)$diagnostics %>% 
+  data.frame() %>% 
+  glimpse()
+```
+
+Plot Pareto k estimates
+
+```{r}
+loo(b4_general_interactions_nonlinear)$diagnostics %>% 
+  data.frame() %>% 
+  # attach the `id` values
+  bind_cols(dataPS) %>% 
+  mutate(id = 1:n()) %>%
+  
+  ggplot(aes(x = id, y = pareto_k)) +
+  geom_point(alpha = 3/4) + 
+  geom_text(data = . %>% filter(pareto_k > .2),
+            aes(x = id + 2, label = id),
+            size = 3, hjust = 0) +
+  theme(panel.grid = element_blank())
+```
 
 # ############
-## Fit maximal multilevel model
+## Fit multilevel model
 
 
+```{r}
+b5_multilevel_3 <-
+   brm(data = dataPS,
+       family = binomial(link="cloglog"),
+       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + #I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 + period_9|pid),
+       prior = c(set_prior("normal(0, 4)", class = "b"),
+                 set_prior("cauchy(0,2", class = "sd"),
+                 set_prior("lkj(2)", class = "cor")),
+         chains = 4, cores = 8, iter = 3000, warmup = 1000,
+       control = list(adapt_delta = 0.99), #, stepsize = 0.1, max_treedepth = 20),
+         seed = 12,
+         file = "models/b5_multilevel_3")
+```
 
+```{r}
+print(b5_multilevel_3)
+```
 
+No transition ended with a divergence, when adapt_delta = .99.
 
+```{r}
+b5_multilevel_5 <-
+   brm(data = dataPS,
+       family = binomial(link="cloglog"),
+       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + #I(trial_c^2) + #con:trial_c + incon:trial_c + 
+                              (1 + period_9 + con +incon |pid),
+       prior = c(set_prior("normal(0, 4)", class = "b"),
+                 set_prior("cauchy(0,2)", class = "sd"),
+                 set_prior("lkj(2)", class = "cor")),
+         chains = 4, cores = 8, iter = 3000, warmup = 1000,
+       control = list(adapt_delta = 0.99), #, stepsize = 0.1, max_treedepth = 20),
+         seed = 12, init="0",
+         file = "models/b5_multilevel_5")
+```
 
+```{r}
+print(b5_multilevel_4)
+```
 
