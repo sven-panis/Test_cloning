@@ -2182,7 +2182,39 @@ print(b5_multilevel_2e)
 get_prior(b5_multilevel_2e)
 ```
 
-For 2e,  ms per chain on average.  transition ended with a divergence.
+For 2e, 3750 ms per chain on average. 0 transitions ended with a divergence.
+
+
+Test4: Maximal multilevel model : (1 + period_9 + I(period_9^2) + con + incon + con:period_9 + incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c | pid)
+
+```{r}
+priors <- c(
+  set_prior("normal(0, 1)", class = "b"), # for beta parameters 
+  set_prior("student_t(7.61, 0, 1.57)", class = "b", coef = "Intercept"), # flat prior for intercept
+  set_prior("normal(0, 1)", class = "sd"),
+  set_prior("lkj(2)", class = "cor")
+)
+```
+
+```{r}
+b5_multilevel_2f <-
+   brm(data = dataPS,
+       family = binomial(link="cloglog"),
+       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 + period_9 + I(period_9^2) + con + incon + con:period_9 + incon:period_9 + trial_c +                                         I(trial_c^2) + con:trial_c + incon:trial_c| pid),
+       prior = priors,
+       chains = 4, cores = 8, iter = 3000, warmup = 1000,
+       control = list(adapt_delta = 0.999, step_size = 0.04, max_treedepth = 12),
+       seed = 12, init = "0",
+       file = "models/b5_multilevel_2f")
+```
+
+```{r}
+print(b5_multilevel_2f)
+get_prior(b5_multilevel_2f)
+```
+
+For 2f, 3850  ms per chain on average.  0 transition ended with a divergence.
 
 
 
