@@ -367,7 +367,9 @@ tibble(sd = c(2, 1.5, 1)) %>%
   facet_wrap(~ sd)
 ```
 
-The log-odds Normal(0,1) gently regularizes p towards .5, but still allows for stronger values. This might be a good prior to use for the beta parameters. The alpha parameters tend to drift toward the lower end of the probability range in general (i.e., they are typically below .5 in hazard space, also for RT studies). The log-odds Normal(0, 1.5) prior is nearly flat in probability space, but it does still push the mass away from the boundaries.
+The log-odds Normal(0,1) gently regularizes p towards .5, but still allows for stronger values. This might be a good prior to use for the beta parameters. 
+
+The alpha parameters tend to drift toward the lower end of the probability range in general (i.e., they are typically below .5 in hazard space, also for RT studies). The log-odds Normal(0, 1.5) prior is nearly flat in probability space, but it does still push the mass away from the boundaries.
 
 Solomon Kurz proposes to simulate a large number of draws from the Uniform(0,1) distribution, convert those draws to the log-odds metric, and fit a Student's t model, if we want to stay within the Student-t familiy of priors, of which the normal is a special case (to gain a sense of what prior values would approximate a uniform distriubution on the probability scale).
 
@@ -966,27 +968,27 @@ b2.cubic <-
       file = "models/b2.cubic")
 
 # fourth order
-b2.quartic4 <-
-  brm(data = ptb_data_ind,
-      family = binomial,
-      event | trials(1) ~ 0 + Intercept + period + I(period^2) + I(period^3) + I(period^4),
-      prior(normal(0, 3), class = b),
-      chains = 4, cores = 8, iter = 5000, warmup = 1000,
-      control = list(max_treedepth = 14),
-      seed = 12,
-      file = "models/b2.quartic4")
-
-# fifth order
-b2.quintic <-
-  brm(data = ptb_data_ind,
-      family = binomial,
-      event | trials(1) ~ 0 + Intercept + period + I(period^2) + I(period^3) + I(period^4) + I(period^5),
-      prior(normal(0, 4), class = b),
-      chains = 4, cores = 8, iter = 3000, warmup = 1000,
-      control = list(max_treedepth = 14),
-      seed = 12,
-      init = 0,
-      file = "models/b2.quintic")
+# b2.quartic4 <-
+#   brm(data = ptb_data_ind,
+#       family = binomial,
+#       event | trials(1) ~ 0 + Intercept + period + I(period^2) + I(period^3) + I(period^4),
+#       prior(normal(0, 3), class = b),
+#       chains = 4, cores = 8, iter = 5000, warmup = 1000,
+#       control = list(max_treedepth = 14),
+#       seed = 12,
+#       file = "models/b2.quartic4")
+# 
+# # fifth order
+# b2.quintic <-
+#   brm(data = ptb_data_ind,
+#       family = binomial,
+#       event | trials(1) ~ 0 + Intercept + period + I(period^2) + I(period^3) + I(period^4) + I(period^5),
+#       prior(normal(0, 4), class = b),
+#       chains = 4, cores = 8, iter = 3000, warmup = 1000,
+#       control = list(max_treedepth = 14),
+#       seed = 12,
+#       init = 0,
+#       file = "models/b2.quintic")
 
 # general
 b2.general <-
@@ -1016,13 +1018,10 @@ summary(b2.constant)
 print(b2.linear)
 print(b2.quad)
 print(b2.cubic)
-print(b2.quartic) # Parts of the model have not converged. Increase iterations / stronger priors
-print(b2.quintic) # Divergent transitions (increase adapt_delta above 0.8) + parts not converged
+print(b2.quartic) # Parts of the model have not converged. Increase iterations / stronger priors...
+print(b2.quintic) # Divergent transitions (increase adapt_delta above 0.8) + parts not converged...
 print(b2.general)
 print(b2.factor)
-
-print(b2.quartic2) # more iterations
-print(b2.quartic3) # more iterations and max_treedepth =12
 ```
 
 
@@ -1272,7 +1271,7 @@ model_weights(b2.quad, b2.cubic, weights = "waic") %>% round(digits = 3)
 model_weights(b2.quad, b2.cubic, weights = "stacking") %>% round(digits = 3)
 ```
 
-two guidelines for selecting among alternative specifications:
+Two guidelines for selecting among alternative specifications:
 
 If a smooth specification works nearly as well as the completely general one, appreciably better than all simpler ones, and no worse than all more complex ones, consider adopting it.
 If no smooth specifications meet these criteria, retain the completely general specification.
@@ -1332,8 +1331,7 @@ p2 <-
 Interpreting parameters from linear, quadratic, and cubic specifications.
 
 For the polynomial models in this section, Singer and Willett used the  
-TIME−c  specification for period where  c
-  is a centering constant. 
+TIME−c  specification for period where c is a centering constant. 
   
 ```{r}
 ptb_data_ind <-
@@ -1541,13 +1539,7 @@ tibble(p = seq(from = .00001, to = .99999, length.out = 1e4)) %>%
         panel.grid = element_blank())
 ```
 
-Both transformations extend to the full  
-−
-∞
-  to  
-∞
-  parameter space. But whereas the logit is symmetric around zero and has a memorable point corresponding to  p=.5  (i.e., 0), the clog-log is asymmetric and has a less-intuitive point corresponding to  
-p=.5  (i.e., -0.3665129). Though somewhat odd, the advantage of the clog-log is that
+Both transformations extend to the full −∞ to ∞ parameter space. But whereas the logit is symmetric around zero and has a memorable point corresponding to  p=.5  (i.e., 0), the clog-log is asymmetric and has a less-intuitive point corresponding to  p=.5  (i.e., -0.3665129). Though somewhat odd, the advantage of the clog-log is that
 it provides a discrete-time statistical model for hazard that has a built-in proportional hazards assumption, and not a proportional odds assumption (as in the case of the logit link). 
 
 Display sample hazard functions on different scales,” namely the logit and clog-log. 
@@ -1936,14 +1928,14 @@ b4_general_interactions_nonlinear2 <-
 ```
 
 ```{r}
-print(b4_general_interactions_nonlinear)
+print(b4_general_interactions_nonlinear2)
 ```
 
 ```{r}
-b4_general_interactions_nonlinear <- add_criterion(b4_general_interactions_nonlinear, criterion = "waic")
+b4_general_interactions_nonlinear2 <- add_criterion(b4_general_interactions_nonlinear2, criterion = "waic")
 
-loo_compare(b4_general_nointeractions, b4_general_interactions, b4_general_interactions_nonlinear, criterion = "waic") %>% print(simplify = F)
-model_weights(b4_general_nointeractions, b4_general_interactions, b4_general_interactions_nonlinear, weights = "waic") %>% round(digits = 3)
+loo_compare(b4_general_nointeractions, b4_general_interactions2, b4_general_interactions_nonlinear2, criterion = "waic") %>% print(simplify = F)
+model_weights(b4_general_nointeractions, b4_general_interactions2, b4_general_interactions_nonlinear2, weights = "waic") %>% round(digits = 3)
 ```
 
 ## The proportionality assumption: test whether con and incon interact with time
@@ -1966,22 +1958,22 @@ print(b4_general_interactions_nonlinear_noprop3)
 ```{r}
 b4_general_interactions_nonlinear_noprop3 <- add_criterion(b4_general_interactions_nonlinear_noprop3, criterion = "waic")
 
-loo_compare(b4_general_nointeractions, b4_general_interactions, b4_general_interactions_nonlinear,b4_general_interactions_nonlinear_noprop3, criterion = "waic") %>% print(simplify = F)
-model_weights(b4_general_nointeractions, b4_general_interactions, b4_general_interactions_nonlinear, b4_general_interactions_nonlinear_noprop3, weights = "waic") %>% round(digits = 3)
+loo_compare(b4_general_nointeractions, b4_general_interactions2, b4_general_interactions_nonlinear2,b4_general_interactions_nonlinear_noprop3, criterion = "waic") %>% print(simplify = F)
+model_weights(b4_general_nointeractions, b4_general_interactions2, b4_general_interactions_nonlinear2, b4_general_interactions_nonlinear_noprop3, weights = "waic") %>% round(digits = 3)
 ```
 
 ## the no observed heterogeneiety assumption
 ## residual analysis
 
 ```{r}
-residuals(b4_general_interactions_nonlinear) %>% 
+residuals(b4_general_interactions_nonlinear2) %>% 
   str()
 ```
 
 Plot residuals for first 500 rows. 
 
 ```{r}
-residuals(b4_general_interactions_nonlinear) %>% 
+residuals(b4_general_interactions_nonlinear2) %>% 
   data.frame() %>% 
   bind_cols(dataPS) %>% 
   mutate(event = factor(event),
@@ -2003,7 +1995,7 @@ Note. Our estimated stand. error of residuals is very high...
 Pull Pareto k estimates
 
 ```{r}
-loo(b4_general_interactions_nonlinear)$diagnostics %>% 
+loo(b4_general_interactions_nonlinear2)$diagnostics %>% 
   data.frame() %>% 
   glimpse()
 ```
@@ -2011,7 +2003,7 @@ loo(b4_general_interactions_nonlinear)$diagnostics %>%
 Plot Pareto k estimates
 
 ```{r}
-loo(b4_general_interactions_nonlinear)$diagnostics %>% 
+loo(b4_general_interactions_nonlinear2)$diagnostics %>% 
   data.frame() %>% 
   # attach the `id` values
   bind_cols(dataPS) %>% 
@@ -2028,44 +2020,172 @@ loo(b4_general_interactions_nonlinear)$diagnostics %>%
 # ############
 ## Fit multilevel model
 
+Start with random intercept model, and these priors:
 
 ```{r}
-b5_multilevel_3 <-
+priors <- c(
+  set_prior("normal(0, 1)", class = "b"), # for beta parameters 
+  set_prior("student_t(7.61, 0, 1.57)", class = "b", coef = "Intercept"), # flat prior for intercept
+  set_prior("normal(0, 1)", class = "sd")
+  #set_prior("lkj(2)", class = "cor")
+)
+```
+
+
+```{r}
+get_prior(event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 | pid),
+          data = dataPS, family = binomial(link="cloglog"))
+```
+
+
+```{r}
+b5_multilevel_1 <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
-       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + #I(trial_c^2) + con:trial_c + incon:trial_c + 
-                              (1 + period_9|pid),
-       prior = c(set_prior("normal(0, 4)", class = "b"),
-                 set_prior("cauchy(0,2", class = "sd"),
-                 set_prior("lkj(2)", class = "cor")),
-         chains = 4, cores = 8, iter = 3000, warmup = 1000,
-       control = list(adapt_delta = 0.99), #, stepsize = 0.1, max_treedepth = 20),
-         seed = 12,
-         file = "models/b5_multilevel_3")
+       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 | pid),
+       prior = priors,
+       chains = 4, cores = 8, iter = 3000, warmup = 1000,
+       control = list(adapt_delta = 0.99), #, stepsize = 0.01, max_treedepth = 20),
+       seed = 12,
+       file = "models/b5_multilevel_1")
 ```
 
 ```{r}
-print(b5_multilevel_3)
+print(b5_multilevel_1)
+get_prior(b5_multilevel_1)
 ```
 
-No transition ended with a divergence, when adapt_delta = .99.
+Result: rejecting intial values, but all 4 chains start sampling. No error messages.
+
+Non-maximal random intercepts + slopes models:
+
+Test1: (1 + period_9 + I(period_9^2)| pid)
 
 ```{r}
-b5_multilevel_5 <-
+priors <- c(
+  set_prior("normal(0, 1)", class = "b"), # for beta parameters 
+  set_prior("student_t(7.61, 0, 1.57)", class = "b", coef = "Intercept"), # flat prior for intercept
+  set_prior("normal(0, 1)", class = "sd"),
+  set_prior("lkj(2)", class = "cor")
+)
+```
+
+
+```{r}
+get_prior(event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 + period_9 + I(period_9^2)| pid),
+          data = dataPS, family = binomial(link="cloglog"))
+```
+
+
+```{r}
+b5_multilevel_2c <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
-       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + #I(trial_c^2) + #con:trial_c + incon:trial_c + 
-                              (1 + period_9 + con +incon |pid),
-       prior = c(set_prior("normal(0, 4)", class = "b"),
-                 set_prior("cauchy(0,2)", class = "sd"),
-                 set_prior("lkj(2)", class = "cor")),
-         chains = 4, cores = 8, iter = 3000, warmup = 1000,
-       control = list(adapt_delta = 0.99), #, stepsize = 0.1, max_treedepth = 20),
-         seed = 12, init="0",
-         file = "models/b5_multilevel_5")
+       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 + period_9 + I(period_9^2) | pid),
+       prior = priors,
+       chains = 4, cores = 8, iter = 3000, warmup = 1000,
+       control = list(adapt_delta = 0.99, step_size = 0.04, max_treedepth = 12),
+       seed = 12, init = "0",
+       file = "models/b5_multilevel_2c")
 ```
 
 ```{r}
-print(b5_multilevel_4)
+print(b5_multilevel_2c)
+get_prior(b5_multilevel_2c)
 ```
+
+For 2a, all chains finished unexpectedly. So add init="0" for model 2b.
+
+For 2b, 800 seconds per chain. Also, 5 transitions (of 8000) ended with a divergence. Set stepsize to 0.04 and max_treedepth to 12 for model 2c.
+
+For 2c, 1100 seconds per chain. 1 of 8000 transitions ended with a divergence.
+
+
+Test2: (1 + period_9 + I(period_9^2) + con + incon | pid)
+
+```{r}
+priors <- c(
+  set_prior("normal(0, 1)", class = "b"), # for beta parameters 
+  set_prior("student_t(7.61, 0, 1.57)", class = "b", coef = "Intercept"), # flat prior for intercept
+  set_prior("normal(0, 1)", class = "sd"),
+  set_prior("lkj(2)", class = "cor")
+)
+```
+
+
+```{r}
+get_prior(event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 + period_9 + I(period_9^2) + con + incon | pid),
+          data = dataPS, family = binomial(link="cloglog"))
+```
+
+
+```{r}
+b5_multilevel_2d <-
+   brm(data = dataPS,
+       family = binomial(link="cloglog"),
+       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 + period_9 + I(period_9^2) + con + incon | pid),
+       prior = priors,
+       chains = 4, cores = 8, iter = 3000, warmup = 1000,
+       control = list(adapt_delta = 0.99, step_size = 0.04, max_treedepth = 12),
+       seed = 12, init = "0",
+       file = "models/b5_multilevel_2d")
+```
+
+```{r}
+print(b5_multilevel_2d)
+get_prior(b5_multilevel_2d)
+```
+
+For 2d, 1460 ms per chain on average. 1 transition ended with a divergence. Increase adapt_delta to 0.999 for next model.
+
+
+Test3: (1 + period_9 + I(period_9^2) + con + incon + con:period_9 + incon:period_9| pid)
+
+```{r}
+priors <- c(
+  set_prior("normal(0, 1)", class = "b"), # for beta parameters 
+  set_prior("student_t(7.61, 0, 1.57)", class = "b", coef = "Intercept"), # flat prior for intercept
+  set_prior("normal(0, 1)", class = "sd"),
+  set_prior("lkj(2)", class = "cor")
+)
+```
+
+
+```{r}
+get_prior(event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 + period_9 + I(period_9^2) + con + incon | pid),
+          data = dataPS, family = binomial(link="cloglog"))
+```
+
+
+```{r}
+b5_multilevel_2e <-
+   brm(data = dataPS,
+       family = binomial(link="cloglog"),
+       event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + con:period_9 + incon +                                 incon:period_9 + trial_c + I(trial_c^2) + con:trial_c + incon:trial_c + 
+                              (1 + period_9 + I(period_9^2) + con + incon + con:period_9 + incon:period_9| pid),
+       prior = priors,
+       chains = 4, cores = 8, iter = 3000, warmup = 1000,
+       control = list(adapt_delta = 0.999, step_size = 0.04, max_treedepth = 12),
+       seed = 12, init = "0",
+       file = "models/b5_multilevel_2e")
+```
+
+```{r}
+print(b5_multilevel_2e)
+get_prior(b5_multilevel_2e)
+```
+
+For 2e,  ms per chain on average.  transition ended with a divergence.
+
+
+
+
+
 
