@@ -24,7 +24,7 @@ install.packages(c("tidyverse", "RColorBrewer", "patchwork", "ggridges"))
 
 install.packages("pracma") # for reshaping a Matrix
 
-install.packages("flextable")
+install.packages("ragg")
 ```
 
 packages for model building in brms.
@@ -41,6 +41,7 @@ devtools::install_github("jmgirard/standist")
 install.packages(c("brms", "tidybayes", "bayesplot", "future"))
 
 install.packages("sn") # to sample from skew-normal distribution
+```
 
 
 packages for papaja and manuscript writing
