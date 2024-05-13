@@ -1,0 +1,89 @@
+---
+title: "code_review"
+author: "Rich"
+date: "2024-05-13"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This file is a place to store notes following code review in this project.
+
+
+# second code review - May 10, 2024 #
+
+1. print.data.frame(data, max=50). Instead, I think you can use:
+		head(data) or
+		print(n=10) https://tibble.tidyverse.org/reference/formatting.html
+
+2. consider using pluck instead of [[]]. https://purrr.tidyverse.org/reference/pluck.html
+e.g., data_final [[]][[]]
+
+3. exercise2, extract-medians chunk. Do you want a list of arrays/matrices? Is that intentional? Just wondering why you don't want rectangular data. There may be reasons, but if you want it rectangular and 'tidy', then I can help. See here also: https://tidyr.tidyverse.org/articles/rectangle.html
+
+4. Move the description of exercise 3 to the top so folks know what the aim of exercise 3 is, like 1 and 2.
+
+5. function names. Since I hardly ever write functions (but I really should), I am the last person to give advice on this. But I will ask a question. Your function names are long and descriptive. The advantage is that the name itself helps define the function. This can be helpful for human memory. However, the length means you have to type them out of press up and scroll to the correct function. Are you aware of any general tips for the length and usability of function names?
+		shorter examples might be as follows (and all you would need is a little list of abbreviations):
+			censor
+			ptb
+			setup_lt
+			calc_ca
+			join_lt_ca
+			extract_median
+			
+6. avoid periods in file names or column names. they can cause trouble. tidyverse uses underscores more often for that reason I think. periods are more common in base r.
+7. when using ggsave, I have started to always set the width and height e.g., width = 6, height = 4). Otherwise, it saves at the size of the plot window and that will change loads depending on screen sizes.
+8. it might be useful to compare dataframes in Exercise3. If so, see here: https://bookdown.org/Maxine/r4ds/comparing-two-data-frames-tibbles.html
+9. Exercise4. Some typos with periods and underscores. see e.g., b1.general1_prime. in chunk b1.general1-prime-model. the named object is different to the saved filename.
+10. in model scripts, I tend to have a section at the top which is hashed out, but that lists the previously compiled models. e.g., ## prior models ## then in a chunck... b0.general1_prime <- readRDS("models/b0.general1_prime.rds"). Then folks like me who are lazy and don't want to build the models, can still load them in a second without typing anything. Then I can take a look at them and make plots etc.
+11. I think it will be useful to make an effects.Rmd file and separate it from the modelling process. My workflow is usually as follows: model.Rmd builds the models and runs model checks and model comparisons (if necessary using loo). effects.Rmd files load in the model object/s and then visualise and tabulate parameters from the posterior distribution. I find it helpful, otherwise the model script gets massive very quickly. see my computational_reproducibility project on github for an example. 
+
+
+
+# first code review - (not sure when) #
+
+Hi Sven, I don't know the best way to provide comments, so I thought I would just write them down and email you. 
+
+I have made some minors changes via git and I'll push them.
+
+
+## readme file
+
+I made a bunch of changes to this based on our conversation the other day. This is super important to set things up correctly for other users.
+## minor coding conventions
+
+- always use lowercase letters and avoid spaces. This applies to everything from filenames, to dataframes to column names to chunk names. It can cause problems down the line.
+- avoid column names like `event = 0`, where they have single quotes around them
+- I like the output in the console, but that's just me. 
+
+## set.seed
+
+in Example1, the set.seed is hashed out. In example 2, it is not.
+Maybe consider being explicit in whether other users want to reproduce a prior dataset exactly or not. 
+
+## Example 1
+
+Example1 worked nicely. I did get a warning about data outside of the range. e.g.,
+
+Warning messages:
+1: Removed 2 rows containing missing values or values outside the scale range (`geom_line()`). 
+2: Removed 2 rows containing missing values or values outside the scale range (`geom_point()`). 
+3: Removed 2 rows containing missing values or values outside the scale range (`geom_segment()`). 
+4: Removed 5 rows containing missing values or values outside the scale range (`geom_line()`). 
+5: Removed 5 rows containing missing values or values outside the scale range (`geom_point()`). 
+6: Removed 5 rows containing missing values or values outside the scale range (`geom_segment()`).
+
+
+## Example 2
+
+I've never heard of the pracma package, so I'm curious to know what it does and how you use it.
+
+I LOVE the creation and use of functions. That is going to rock my world when it comes to making the EHA tutorial. Nice work!
+
+Minor point: I would consider using subfolders for figures, so that the main folder is not swamped with files. common subfolders would be, for example: /data/, /figures/, /models/. So the code would need to change ever so slightly to respect the folder structure. 
