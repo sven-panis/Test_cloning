@@ -15,6 +15,58 @@ knitr::opts_chunk$set(echo = TRUE)
 This file is a place to store notes following code review in this project.
 
 
+# May 13th, 2024 #
+
+1. Model - b1.general1_prime. Are con and incon coded with reference to neutral? Is there another place where you will compare them directly or will that be done once you have the posterior draws?
+
+2. I got this warning in Exercise4 line 294 plot.
+Warning message:
+Method 'posterior_samples' is deprecated. Please see ?as_draws for recommended alternatives. 
+
+Maybe consider using the recommended as_draws_df from the posterior package - https://paul-buerkner.github.io/brms/reference/draws-brms.html
+
+e.g., to get the posterior, then remove unwanted stuff and then make it a tibble.
+
+```{r, eval=FALSE}
+post <- as_draws_df(bi_h2) %>% 
+  select(-lp__) %>% 
+  as_tibble()
+```
+
+3. The plot made on lines 740-745 looks pretty cool to me.
+
+4. Model averaging. Minor point. Not sure we need it. I have no formal problem with it, other than it seems to divide people. And, we tend to know where we are heading usually (i.e., towards the full model). But maybe with the models you build, model averaging might become one extra tool in our toolkit, which we can use when necessary??
+
+5. For building models, have you tried to use the future package to exploit parallel processing? The top part of your code seems good - e.g., package loaded and fork settings for RStudio are set.
+
+So now, just add plan(multicore) at the top of the model building code chunk.
+
+e.g., 
+
+```{r, eval=FALSE}
+## run the model ##
+plan(multicore)
+bi1 <- brm(formula = formula,
+        data = diff2, family = gaussian(),
+        prior = priors,
+        iter = 4000, warmup = 2000, cores = 4, chains = 4,
+        save_pars = save_pars(all=TRUE),
+        seed = 123,
+        file = "models/bi1")
+summary(bi1)
+```
+
+6. Model building settings. For the most complex models, I can see that you set the following:
+
+- init = "0"
+
+Does it work if you set init = 0.1 rather than zero?
+
+- adapt_delta = 0.999
+
+Does it work if you lower adapt_delta (0.95 for example), but increase the chains?? Just curious.
+
+
 # second code review - May 10, 2024 #
 
 1. print.data.frame(data, max=50). Instead, I think you can use:
