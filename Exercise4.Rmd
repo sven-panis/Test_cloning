@@ -2310,6 +2310,7 @@ https://cran.r-project.org/web/packages/tidybayes/vignettes/tidy-brms.html
 get a list of raw model variable names so that we know what variables we can extract from the model:
 
 ```{r}
+b5_multilevel_2f <- readRDS("models/b5_multilevel_2f.rds")
 get_variables(b5_multilevel_2f)
 ```
 
@@ -2399,7 +2400,15 @@ b5_multilevel_2f %>%
 
 Intervals with densities
 
-
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  mutate(subject_intercept = b_Intercept + r_pid) %>%
+  
+  ggplot(aes(y = factor(subject), x = subject_intercept)) +
+  ggdist::stat_halfeye(.width = c(.95, .8), point_interval = "median_qi")
+```
 
 
 
