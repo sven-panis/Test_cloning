@@ -2237,7 +2237,7 @@ make_fitted(b5_multilevel_2f, scale = "linear")%>%
          trial  = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500")),
          period = period_9+9) %>% 
   
-  filter(pid==5) %>% # select pid here (1:6) manually
+  filter(pid==4) %>% # select pid here (1:6) manually
   
   # plot!
   ggplot(aes(x = period, y = Estimate, ymin = Q2.5, ymax = Q97.5,
@@ -2304,3 +2304,105 @@ loo(b5_multilevel_2f)$diagnostics %>%
             size = 3, hjust = 0) +
   theme(panel.grid = element_blank())
 ```
+
+https://cran.r-project.org/web/packages/tidybayes/vignettes/tidy-brms.html
+
+get a list of raw model variable names so that we know what variables we can extract from the model:
+
+```{r}
+get_variables(b5_multilevel_2f)
+```
+
+A. Gather variable (e.g., r_pid) indices (e.g., 1, Intercept) into a separate column
+
+```{r}
+offsets <- b5_multilevel_2f %>%
+                spread_draws(r_pid[subject,term]) # 528,000 obs. of 6 vars
+
+offsets %>% head(10)
+
+offsets %>% filter(term == "con") # 48,000 (6 pid x 8000 draws) x 6 columns (subject, term, r_pid, .chain, .iteration, .draw)
+```
+
+Point summaries (median, mean, mode) and intervals (qi or percentile intervals, hdi)
+
+For example, calculate the median and 95% quantile interval of three variables
+
+```{r}
+b5_multilevel_2f %>%
+  spread_draws(b_Intercept, b_con, b_incon) %>%
+  median_qi()
+```
+
+Or the mean and 95% highest density interval of four variables
+
+```{r}
+b5_multilevel_2f %>%
+  spread_draws(b_period_9, b_trial_c, sd_pid__Intercept, cor_pid__Intercept__period_9) %>%
+  mean_hdi()
+```
+
+In separate rows:
+
+```{r}
+b5_multilevel_2f %>%
+  gather_draws(b_period_9, b_trial_c, sd_pid__Intercept, cor_pid__Intercept__period_9) %>%
+  mean_hdi()
+```
+
+For indexed model variables:
+
+```{r}
+rpid_info <- b5_multilevel_2f %>%
+                spread_draws(r_pid[subject,term]) %>% 
+                mean_qi() # 66 (6 pid x 11 terms) x 8 columns
+
+print.data.frame(rpid_info)
+```
+
+get summary (including median absolute deviation or mad) and convergence diagnostics:
+
+```{r}
+b5_multilevel_2f %>%
+                spread_draws(r_pid[subject,term]) %>% 
+                summarise_draws()
+
+b5_multilevel_2f %>%
+  spread_draws(b_Intercept, b_con, b_incon) %>%
+  summarise_draws()
+```
+
+Combining variables with different indices.
+For example, the intercept for each subject (i.e., estimated cloglog-hazard in bin 9 for baseline condition = Neutral, trial 1000):
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  mutate(subject_intercept = b_Intercept + r_pid) %>%
+  median_qi(subject_intercept)
+```
+
+Plotting intervals with multiple probability levels
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  mutate(subject_intercept = b_Intercept + r_pid) %>%
+  median_qi(subject_intercept, .width = c(.95, .8, .5)) %>%
+  
+  ggplot(aes(y = subject, x = subject_intercept, xmin = .lower, xmax = .upper)) +
+  geom_pointinterval() +
+  theme_minimal()
+```
+
+Intervals with densities
+
+
+
+
+
+
+
+
