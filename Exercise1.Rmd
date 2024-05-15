@@ -41,6 +41,7 @@ data <- tibble(
                condition=factor(condition,levels=c(1,2)))
 
 print.data.frame(data, max=50)
+#print(data, n=10) # ignores the round(digits=2) function
 ```
 
 Create right-censored observations and discrete RT variable.

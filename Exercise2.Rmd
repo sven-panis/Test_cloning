@@ -216,6 +216,8 @@ Now you can extract info as required.
 # view original data for subject 1:
 print.data.frame(data_final[[2]][[1]], max=60)
 
+pluck(data_final, 2, 1) # pluck() ignores the round(digits=2) function
+
 # view person-trial-bin data set for subject 1:
 print.data.frame(data_final[[4]][[1]], max=160) 
 
@@ -227,7 +229,7 @@ And you can save each plot.
 
 ```{r save-plots}
 # save as pdf
-map2(paste0("figures/figure_for_subject", data_final$pid, ".pdf"), data_final$plot, ggsave)
+map2(paste0("figures/figure_for_subject", data_final$pid, ".pdf"), data_final$plot, ggsave, width = 14, height = 16, units = "cm")
 
 # save as png
 map2(paste0("figures/figure_for_subject", data_final$pid, ".png"), data_final$plot, ggsave, width = 8, height = 5, dpi = 600)
@@ -272,5 +274,6 @@ Extract median RTs.
 ```{r extract-medians}
 LL <-map(data_final$lifetable_ca, extract_median_period)
 binsize <- data_final$censored[[1]] %>% pull(bin_width) %>% max(na.rm=T)
-modify_depth(LL,1,~.x*binsize)
+MedianRTs <- modify_depth(LL,1,~.x*binsize)
+MedianRTs 
 ```
