@@ -277,3 +277,12 @@ binsize <- data_final$censored[[1]] %>% pull(bin_width) %>% max(na.rm=T)
 MedianRTs <- modify_depth(LL,1,~.x*binsize)
 MedianRTs 
 ```
+
+Make into a tibble
+
+```{r}
+median_tb <- map(MedianRTs, ~as_tibble(., rownames = "condition")) %>% 
+  list_rbind(names_to = "pid")
+median_tb
+```
+
