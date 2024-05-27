@@ -103,6 +103,8 @@ e.g., data_final [[]][[]]
 
 8. it might be useful to compare dataframes in Exercise3. If so, see here: https://bookdown.org/Maxine/r4ds/comparing-two-data-frames-tibbles.html
 
+
+
 9. Exercise4. Some typos with periods and underscores. see e.g., b1.general1_prime. in chunk b1.general1-prime-model. the named object is different to the saved filename.
 
 10. in model scripts, I tend to have a section at the top which is hashed out, but that lists the previously compiled models. e.g., ## prior models ## then in a chunck... b0.general1_prime <- readRDS("models/b0.general1_prime.rds"). Then folks like me who are lazy and don't want to build the models, can still load them in a second without typing anything. Then I can take a look at them and make plots etc.

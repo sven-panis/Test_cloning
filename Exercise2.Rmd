@@ -58,7 +58,7 @@ https://modern-rstats.eu/functional-programming.html#functional-programming-and-
 https://dcl-prog.stanford.edu/purrr-basics.html#extra-arguments
 
 ```{r func-define-censoring-drt}
-define_censoring_dRT <- function(df, timeout, bin_width){
+censor <- function(df, timeout, bin_width){
   if(!(timeout %% bin_width == 0)){
     return("The censoring time must be a multiple of the bin width!")
   }
@@ -71,7 +71,7 @@ define_censoring_dRT <- function(df, timeout, bin_width){
 ```
 
 ```{r func-setup-ptb}
-setup_person_trial_bin <- function(df){
+ptb <- function(df){
   df %>% uncount(weights = dRT) %>% 
          group_by(trial) %>% 
          mutate(period = 1:n()) %>% 
@@ -81,7 +81,7 @@ setup_person_trial_bin <- function(df){
 ```
 
 ```{r func-setup-lifetable}
-setup_lifetable <- function(ptb){
+setup_lt <- function(ptb){
   ptb %>% mutate(event = str_c("event", event)) %>%
           group_by(condition,period) %>% 
           count(event) %>% 
@@ -102,7 +102,7 @@ setup_lifetable <- function(ptb){
 ```
 
 ```{r func-conditional-accuracy}
-calc_conditionalaccuracy <- function(df){
+calc_ca <- function(df){
   df %>% filter(right_censored==0) %>%
          group_by(condition,dRT,cens_time,bin_width) %>%
          summarize(ca = mean(acc) %>% round(digits = 2),
@@ -116,11 +116,11 @@ calc_conditionalaccuracy <- function(df){
 ```
 
 ```{r func-join}
-join_lifetable_ca <- function(df1,df2){df1 %>% left_join(df2, join_by(condition,period))}
+join_lt_ca <- function(df1,df2){df1 %>% left_join(df2, join_by(condition,period))}
 ```
 
 ```{r func-extract-median}
-extract_median_period <- function(df){
+extract_median <- function(df){
   above_pct50 <- df %>% 
       group_by(condition) %>%
       filter(survival > .5) %>% 
@@ -144,7 +144,7 @@ plot_eha <- function(df,subj){
   library(patchwork)
   cutoff <- df %>% pull(cens_time) %>% max(na.rm=T)
   binsize <- df %>% pull(bin_width) %>% max(na.rm=T)
-  median_period <- extract_median_period(df)
+  median_period <- extract_median(df)
   n_conditions <- nlevels(df$condition)
   data_median <- c()
   for(i in 1:n_conditions){
@@ -202,11 +202,11 @@ Apply the functions using map and map2 to create the life tables and plots.
 
 ```{r apply-functions}
 data_final <- data_nested %>% 
-                     mutate(censored  = map(data, define_censoring_dRT, 800, 100)) %>%       # user input: censoring time, and bin width
-                     mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%           # create person-trial-bin dataset
-                     mutate(lifetable = map(ptb_data, setup_lifetable)) %>%                  # create life tables without ca
-                     mutate(condacc   = map(censored, calc_conditionalaccuracy)) %>%         # calculate ca
-                     mutate(lifetable_ca = map2(lifetable, condacc, join_lifetable_ca)) %>%  # create life tables with ca
+                     mutate(censored  = map(data, censor, 800, 100)) %>%       # user input: censoring time, and bin width
+                     mutate(ptb_data  = map(censored, ptb)) %>%           # create person-trial-bin dataset
+                     mutate(lifetable = map(ptb_data, setup_lt)) %>%                  # create life tables without ca
+                     mutate(condacc   = map(censored, calc_ca)) %>%         # calculate ca
+                     mutate(lifetable_ca = map2(lifetable, condacc, join_lt_ca)) %>%  # create life tables with ca
                      mutate(plot      = map2(.x = lifetable_ca, .y = pid, plot_eha))         # create plots of info in life tables
 ```
 
@@ -214,15 +214,15 @@ Now you can extract info as required.
 
 ```{r extract-info}
 # view original data for subject 1:
-print.data.frame(data_final[[2]][[1]], max=60)
-
 pluck(data_final, 2, 1) # pluck() ignores the round(digits=2) function
 
 # view person-trial-bin data set for subject 1:
-print.data.frame(data_final[[4]][[1]], max=160) 
+pluck(data_final,4,1)
+#print.data.frame(data_final[[4]][[1]], max=160) 
 
 # view lifetables for each condition for subject 1
-print.data.frame(data_final[[7]][[1]], max=300)
+pluck(data_final, 7, 1)
+#print.data.frame(data_final[[7]][[1]], max=300)
 ```
 
 And you can save each plot.
@@ -272,7 +272,7 @@ write_csv(input_ca_modeling, file="data/inputfile_ca_modeling.csv")
 Extract median RTs.
 
 ```{r extract-medians}
-LL <-map(data_final$lifetable_ca, extract_median_period)
+LL <-map(data_final$lifetable_ca, extract_median)
 binsize <- data_final$censored[[1]] %>% pull(bin_width) %>% max(na.rm=T)
 MedianRTs <- modify_depth(LL,1,~.x*binsize)
 MedianRTs 

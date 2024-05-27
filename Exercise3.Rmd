@@ -55,11 +55,11 @@ datafile.orig <- datafile.orig %>% mutate(condition = condition + 1,
 data_nested <- datafile.orig %>% group_nest(pid)
 
 data_final <- data_nested %>% 
-                     mutate(censored  = map(data, define_censoring_dRT, 600, 40)) %>% # user input: censoring time, and bin width
-                     mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%           # create person-trial-bin dataset
-                     mutate(lifetable = map(ptb_data, setup_lifetable)) %>%                  # create life tables without ca
-                     mutate(condacc   = map(censored, calc_conditionalaccuracy)) %>%         # calculate ca
-                     mutate(lifetable_ca = map2(lifetable, condacc, join_lifetable_ca)) %>%  # create life tables with ca
+                     mutate(censored  = map(data, censor, 600, 40)) %>% # user input: censoring time, and bin width
+                     mutate(ptb_data  = map(censored, ptb)) %>%           # create person-trial-bin dataset
+                     mutate(lifetable = map(ptb_data, setup_lt)) %>%                  # create life tables without ca
+                     mutate(condacc   = map(censored, calc_ca)) %>%         # calculate ca
+                     mutate(lifetable_ca = map2(lifetable, condacc, join_lt_ca)) %>%  # create life tables with ca
                      mutate(plot      = map2(.x = lifetable_ca, .y = pid, plot_eha))         # create plots of info in life tables
 ```
 
@@ -69,9 +69,11 @@ Third, load the corresponding life tables from Panis and Schmidt (2016), and com
 load("data/NCE_Panis_final_LifeTables.RData")
 
 # compare lifetables for condition 1 and subject 1:
-LifeTableSubject[[1]][[1]]
+new <- data_final$lifetable_ca[[1]] %>% filter(condition == 1)
+old <- LifeTableSubject[[1]][[1]]
 
-print.data.frame(data_final$lifetable_ca[[1]] %>% filter(condition == 1))
+dplyr::all_equal(new,old)
+
 
 # conditon 2 and subject 1:
 
@@ -120,20 +122,20 @@ summary(datafile.orig_ind)
 data_nested_ind <- datafile.orig_ind %>% group_nest(pid)
 
 data_final_ind <- data_nested_ind %>% 
-                     mutate(censored  = map(data, define_censoring_dRT, 600, 40)) %>% #3 user input: censoring time, and bin width
-                     mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%           #4 create person-trial-bin dataset
-                     mutate(lifetable = map(ptb_data, setup_lifetable)) %>%                  # create life tables without ca
-                     mutate(condacc   = map(censored, calc_conditionalaccuracy)) %>%         # calculate ca
-                     mutate(lifetable_ca = map2(lifetable, condacc, join_lifetable_ca)) %>%  # create life tables with ca
+                     mutate(censored  = map(data, censor, 600, 40)) %>% #3 user input: censoring time, and bin width
+                     mutate(ptb_data  = map(censored, ptb)) %>%           #4 create person-trial-bin dataset
+                     mutate(lifetable = map(ptb_data, setup_lt)) %>%                  # create life tables without ca
+                     mutate(condacc   = map(censored, calc_ca)) %>%         # calculate ca
+                     mutate(lifetable_ca = map2(lifetable, condacc, join_lt_ca)) %>%  # create life tables with ca
                      mutate(plot      = map2(.x = lifetable_ca, .y = pid, plot_eha))         # create plots of info in life tables
 ```
 
 ```{r}
 # view person-trial-bin data set 
-print.data.frame(data_final_ind[[4]][[1]], max=400) 
+pluck(data_final_ind, 4, 1)
 
 # view lifetables for each condition 
-print.data.frame(data_final_ind[[5]][[1]], max=600)
+pluck(data_final_ind, 5, 1)
 ```
 
 
@@ -172,14 +174,14 @@ summary(datafile.orig_ind_1cond)
 data_nested_ind_1cond <- datafile.orig_ind_1cond %>% group_nest(pid)
 
 data_final_ind_1cond <- data_nested_ind_1cond %>% 
-                     mutate(censored  = map(data, define_censoring_dRT, 600, 40)) %>% #3 user input: censoring time, and bin width
-                     mutate(ptb_data  = map(censored, setup_person_trial_bin)) %>%    #4 create person-trial-bin dataset
-                     mutate(lifetable = map(ptb_data, setup_lifetable)) 
+                     mutate(censored  = map(data, censor, 600, 40)) %>% #3 user input: censoring time, and bin width
+                     mutate(ptb_data  = map(censored, ptb)) %>%    #4 create person-trial-bin dataset
+                     mutate(lifetable = map(ptb_data, setup_lt)) 
 ```
 
 ```{r}
 # view lifetables for single condition 
-print.data.frame(data_final_ind_1cond[[5]][[1]], max=600)
+pluck(data_final_ind_1cond, 5, 1)
 
 # the MLE hazard estimates in bins 6-15 are almost identical to the estimates of "fixef(b0.general1) %>% inv_logit()" in Exercise 4, as expected.
 ```
