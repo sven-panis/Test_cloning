@@ -291,11 +291,13 @@ fixef(b1.general1_prime)["con", 1] %>% exp()
 Plot this conversion for the posterior distribution:
 
 ```{r}
-posterior_samples(b1.general1_prime) %>% # 14 x 8000: b_d6 ... b_d15 b_con b_incon lprior lp__
+as_draws_df(b1.general1_prime) %>% # 14 x 8000: b_d6 ... b_d15 b_con b_incon lprior lp__
+  select(-lp__) %>%
+  as_tibble() %>%
  transmute(`log-odds`     = b_con,
-            `odds ratio` = exp(b_con)) %>% 
+            `odds-ratio` = exp(b_con)) %>% 
   pivot_longer(everything()) %>% 
-  mutate(name = factor(name, levels = c("log-odds", "odds ratio"))) %>% 
+  mutate(name = factor(name, levels = c("log-odds", "odds-ratio"))) %>% 
   
   ggplot(aes(x = value, y = 0)) +
   stat_halfeye(.width = c(.5, .95), normalize = "panels") +
@@ -320,9 +322,9 @@ Make a similar plot for incon.
 ```{r}
 as_draws_df(b1.general1_prime) %>% 
   transmute(`log-odds`     = b_incon,
-            `odds ratio` = exp(b_incon)) %>% 
+            `odds-ratio` = exp(b_incon)) %>% 
   pivot_longer(everything()) %>% 
-  mutate(name = factor(name, levels = c("log-odds", "odds ratio"))) %>% 
+  mutate(name = factor(name, levels = c("log-odds", "odds-ratio"))) %>% 
   
   ggplot(aes(x = value, y = 0)) +
   stat_halfeye(.width = c(.5, .95), normalize = "panels") +
@@ -331,6 +333,10 @@ as_draws_df(b1.general1_prime) %>%
   theme(panel.grid = element_blank()) +
   facet_wrap(~ name, scales = "free")
 ```
+
+
+
+
 
 ## Intermezzo: priors
 
@@ -417,6 +423,7 @@ tibble(g = rt(1e6, df = 7.61) * 1.57) %>%
 Fit a new model with separate priors for alpha and beta parameters.
 
 ```{r}
+plan(multicore)
 b1.general1_prime_prior <-
   brm(data = ptb_data_ind,
       family = binomial,
@@ -925,6 +932,7 @@ ptb_data_ind %>%
 head(ptb_data_ind)
 # change name for trials
 
+plan(multicore)
 
 
 # constant
@@ -1344,6 +1352,8 @@ ptb_data_ind %>%
 ```
 
 ```{r}
+plan(multicore)
+
 b2.quad.centered <-
   update(b2.quad,
          newdata = ptb_data_ind,
@@ -1413,6 +1423,8 @@ f %>%
 Now fit a cubic model using period_9, as the measure of time.
 
 ```{r}
+plan(multicore)
+
 b2.cubic.centered <-
   update(b2.cubic,
          newdata = ptb_data_ind,
@@ -1548,6 +1560,8 @@ Little trick: Instead of life tables, we use 4 bayesian regression models with w
 
 ```{r}
 ## logit
+plan(multicore)
+
 # con == 1 and incon == 0
 b3.neutral <-
   brm(data = ptb_data_ind %>% filter(con == 0 & incon == 0),
@@ -1655,6 +1669,8 @@ Now fit proper models to the data (logit vs. cloglog link)
 
 ```{r}
 # logit
+plan(multicore)
+
 b3.general.prime.logit <-
   brm(data = ptb_data_ind,
       family = binomial,
@@ -1819,6 +1835,8 @@ head(dataPS)
 Let's fit models with and without interactions.
 
 ```{r}
+plan(multicore)
+
 b4_general_nointeractions <-
   brm(data = dataPS,
       family = binomial(link="cloglog"),
@@ -1917,6 +1935,8 @@ make_fitted(b4_general_interactions2, scale = "response") %>%
 ### nonlinear effects (of trial number...)
 
 ```{r}
+plan(multicore)
+
 b4_general_interactions_nonlinear2 <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
@@ -1941,6 +1961,8 @@ model_weights(b4_general_nointeractions, b4_general_interactions2, b4_general_in
 ## The proportionality assumption: test whether con and incon interact with time
 
 ```{r}
+plan(multicore)
+
 b4_general_interactions_nonlinear_noprop3 <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
@@ -2040,6 +2062,8 @@ get_prior(event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + c
 
 
 ```{r}
+plan(multicore)
+
 b5_multilevel_1 <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
@@ -2081,6 +2105,8 @@ get_prior(event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + c
 
 
 ```{r}
+plan(multicore)
+
 b5_multilevel_2c <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
@@ -2125,6 +2151,8 @@ get_prior(event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + c
 
 
 ```{r}
+plan(multicore)
+
 b5_multilevel_2d <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
@@ -2165,6 +2193,8 @@ get_prior(event | trials(1) ~ 0 + Intercept + period_9 + I(period_9^2) + con + c
 
 
 ```{r}
+plan(multicore)
+
 b5_multilevel_2e <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
@@ -2197,6 +2227,8 @@ priors <- c(
 ```
 
 ```{r}
+plan(multicore)
+
 b5_multilevel_2f <-
    brm(data = dataPS,
        family = binomial(link="cloglog"),
@@ -2410,8 +2442,34 @@ b5_multilevel_2f %>%
   ggdist::stat_halfeye(.width = c(.95, .8), point_interval = "median_qi")
 ```
 
+Diff in subject-intercept between subjects 3 and 2?
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  filter(subject == 2 | subject== 3) %>%
+  pivot_wider(names_from = subject, values_from =  c(b_Intercept, r_pid)) %>%
+  mutate(subject_intercept_diff23 = (b_Intercept_2 + r_pid_2) - (b_Intercept_3 + r_pid_3)) %>%
+  
+  ggplot(aes( x = subject_intercept_diff23)) +
+  ggdist::stat_halfeye(.width = c(.95, .8), point_interval = "median_qi")
+```
 
 
+Diff in subject-intercept between subjects 5 and 6?
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  filter(subject == 5 | subject== 6) %>%
+  pivot_wider(names_from = subject, values_from =  c(b_Intercept, r_pid)) %>%
+  mutate(subject_intercept_diff56 = (b_Intercept_5 + r_pid_5) - (b_Intercept_6 + r_pid_6)) %>%
+  
+  ggplot(aes( x = subject_intercept_diff56)) +
+  ggdist::stat_halfeye(.width = c(.95, .8), point_interval = "median_qi")
+```
 
 
 
