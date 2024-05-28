@@ -28,23 +28,24 @@ b1.general1_prime <- readRDS("models/b1.general1.prime.rds") # model b
 b1.general1_prime_prior <- readRDS("models/b1.general1_prime_prior.rds") # model c
 
 b2.constant <- readRDS("models/b2.constant.rds")
-b2.linear <- readRDS("models/b2.linear")
-b2.cubic <- readRDS("models/b2.cubic")
-b2.factor <- readRDS("models/b2.factor")
-b2.general <- readRDS("models/b2.general")
+b2.linear <- readRDS("models/b2.linear.rds")
+b2.quad <- readRDS("models/b2.quad.rds")
+b2.cubic <- readRDS("models/b2.cubic.rds")
+b2.factor <- readRDS("models/b2.factor.rds")
+b2.general <- readRDS("models/b2.general.rds")
 
-b4_general_nointeractions <- readRDS("models/b4_general_nointeractions")
-b4_general_interactions2 <- readRDS("models/b4_general_interactions2")
-b4_general_interactions_nonlinear2 <- readRDS("models/b4_general_interactions_nonlinear2")
-b4_general_interactions_nonlinear_noprop3 <- readRDS("models/b4_general_interactions_nonlinear_noprop3")
+b4_general_nointeractions <- readRDS("models/b4_general_nointeractions.rds")
+b4_general_interactions2 <- readRDS("models/b4_general_interactions2.rds")
+b4_general_interactions_nonlinear2 <- readRDS("models/b4_general_interactions_nonlinear2.rds")
+b4_general_interactions_nonlinear_noprop3 <- readRDS("models/b4_general_interactions_nonlinear_noprop3.rds")
 
-#b5_multilevel_1 <- readRDS("models/b5_multilevel_1")
+#b5_multilevel_1 <- readRDS("models/b5_multilevel_1.rds")
 b5_multilevel_2f <- readRDS("models/b5_multilevel_2f.rds")
 
 
 ```
 
-Let's display fitted hazard and survivor functions for model c. 
+# Let's display fitted hazard and survivor functions for model c. 
 
 First, we can create a table with the posterior means, ignoring uncertainty.
 
@@ -648,6 +649,15 @@ b5_multilevel_2f %>%
   ggdist::stat_halfeye(.width = c(.95, .8), point_interval = "median_qi")
 ```
 
+## Compare functions
+
+# as_draws_df() and spread_draws()
+
+
+# posterior_predict, ...
+
+
+## generate fake data for Knot study, and fit max random effects model
 
 
 
