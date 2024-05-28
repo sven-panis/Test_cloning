@@ -17,7 +17,13 @@ This file is a place to store notes following code review in this project.
 
 # May 13th, 2024 #
 
-1. Model - b1.general1_prime. Are con and incon coded with reference to neutral? Is there another place where you will compare them directly or will that be done once you have the posterior draws?
+1. Model - b1.general1_prime. Are con and incon coded with reference to neutral? 
+
+-> Yes.
+
+Is there another place where you will compare them directly or will that be done once you have the posterior draws?
+
+-> Direct comparison is done using posterior draws.
 
 2. I got this warning in Exercise4 line 294 plot.
 Warning message:
@@ -33,9 +39,13 @@ post <- as_draws_df(bi_h2) %>%
   as_tibble()
 ```
 
+Done.
+
 3. The plot made on lines 740-745 looks pretty cool to me.
 
 4. Model averaging. Minor point. Not sure we need it. I have no formal problem with it, other than it seems to divide people. And, we tend to know where we are heading usually (i.e., towards the full model). But maybe with the models you build, model averaging might become one extra tool in our toolkit, which we can use when necessary??
+
+-> We do not need it, indeed.
 
 5. For building models, have you tried to use the future package to exploit parallel processing? The top part of your code seems good - e.g., package loaded and fork settings for RStudio are set.
 
@@ -55,6 +65,8 @@ bi1 <- brm(formula = formula,
         file = "models/bi1")
 summary(bi1)
 ```
+
+-> Done.
 
 6. Model building settings. For the most complex models, I can see that you set the following:
 
@@ -95,6 +107,8 @@ e.g., data_final [[]][[]]
 			join_lt_ca
 			extract_median
 			
+->Done.
+
 6. avoid periods in file names or column names. they can cause trouble. tidyverse uses underscores more often for that reason I think. periods are more common in base r.
 
 7. when using ggsave, I have started to always set the width and height e.g., width = 6, height = 4). Otherwise, it saves at the size of the plot window and that will change loads depending on screen sizes.
@@ -103,15 +117,15 @@ e.g., data_final [[]][[]]
 
 8. it might be useful to compare dataframes in Exercise3. If so, see here: https://bookdown.org/Maxine/r4ds/comparing-two-data-frames-tibbles.html
 
-
-
 9. Exercise4. Some typos with periods and underscores. see e.g., b1.general1_prime. in chunk b1.general1-prime-model. the named object is different to the saved filename.
 
 10. in model scripts, I tend to have a section at the top which is hashed out, but that lists the previously compiled models. e.g., ## prior models ## then in a chunck... b0.general1_prime <- readRDS("models/b0.general1_prime.rds"). Then folks like me who are lazy and don't want to build the models, can still load them in a second without typing anything. Then I can take a look at them and make plots etc.
 
+-> added chunck in effects.Rmd.   
+
 11. I think it will be useful to make an effects.Rmd file and separate it from the modelling process. My workflow is usually as follows: model.Rmd builds the models and runs model checks and model comparisons (if necessary using loo). effects.Rmd files load in the model object/s and then visualise and tabulate parameters from the posterior distribution. I find it helpful, otherwise the model script gets massive very quickly. see my computational_reproducibility project on github for an example. 
 
-
+-> effects.Rmd file created and part of the code moved from Exercise4 to effects.Rmd.
 
 # first code review #
 
