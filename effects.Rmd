@@ -15,7 +15,7 @@ Here we will visualize the effects in various models.
 
 ```{r load-pkg}
 pkg <- c("standist", "tidyverse", "RColorBrewer", "patchwork", 
-         "tidybayes", "bayesplot")
+         "tidybayes", "bayesplot", "brms")
 
 lapply(pkg, library, character.only = TRUE)
 ```
@@ -651,10 +651,231 @@ b5_multilevel_2f %>%
 
 ## Compare functions
 
-# as_draws_df() and spread_draws()
+# as_draws_df() and spread_draws() and gather_draws()
+
+```{r}
+old <-as_draws_df(b5_multilevel_2f) %>%  # 8000 x 145 variables
+  select(b_Intercept, b_con, b_incon) # 8000 x 3
+  
+new<-b5_multilevel_2f %>%
+  spread_draws(b_Intercept, b_con, b_incon) %>% # 8000 x 6
+  select(b_Intercept, b_con, b_incon) # 8000 x 3
+
+new2 <-b5_multilevel_2f %>%
+  gather_draws(b_Intercept, b_con, b_incon) %>% # 24000 x 5 / long format with .variable and .value, and automatic grouping
+  pivot_wider(names_from = .variable, values_from = .value) %>% # 8000 x 6
+  select(b_Intercept, b_con, b_incon) # 8000 x 3
+
+  
+all.equal(new,old) # TRUE
+all.equal(new2,old) # TRUE
+all.equal(new,new2) # TRUE
 
 
-# posterior_predict, ...
+head(old)
+head(new)
+```
+
+# brms: fitted(), posterior_epred(), posterior_linpred(), posterior_predict()
+# tidybayes: add_epred_draws(), add_linpred_draws(), add_predicted_draws(), add_residual_draws()
+
+For binomial cloglog-hazard model: epred -> hazard,  linpred -> cloglog-hazard, predict->1/0?
+
+First, use fitted :
+
+```{r}
+# define the `newdata`
+nd <- tibble(pid = 1:6) %>%
+  expand_grid(incon = 0:1,
+                con  = 0:1,
+                trial_c = c(-0.5,0,0.5),
+                period_9 = -3:6) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(Iperiod_9E2 = period_9^2,
+         Itrial_cE2 = trial_c^2) # 540 x 7 (pid, incon, con, trial_c, period_9, Iperiod_9E2, Itrial_cE2)
+  
+# use `fitted()` and wrangle
+ fitted(b5_multilevel_2f,
+         newdata = nd,
+         scale = "linear") %>% # 540 x 4 / cloglog-hazard predictions
+    data.frame() %>% 
+    bind_cols(nd)%>% 
+    mutate(cond   = rep(rep(c("N","C","I"),each=30),6),
+         trial  = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500")),
+         period = period_9+9) %>% 
+   
+    filter(pid==4) %>% # select pid here (1:6) manually
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, ymin = Q2.5, ymax = Q97.5,
+             fill = cond, color = cond)) +
+  geom_ribbon(alpha = 1/5, linewidth = 0) +
+  geom_line() +
+  scale_fill_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_color_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_x_continuous("bin", breaks = 6:15, limits = c(6, 15)) +
+  ylab("fitted cloglog(hazard)") +
+  coord_cartesian(ylim = c(-5, 1)) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ trial)
+```
+
+Second, use fitted() for typical subject (re_formula = F)
+
+```{r}
+# define the `newdata`
+nd <- tibble(incon = 0:1) %>%
+  expand_grid(con  = 0:1,
+                trial_c = c(-0.5,0,0.5),
+                period_9 = -3:6) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(Iperiod_9E2 = period_9^2,
+         Itrial_cE2 = trial_c^2) # 90 x 6 (incon, con, trial_c, period_9, Iperiod_9E2, Itrial_cE2)
+  
+# use `fitted()` and wrangle
+ fitted(b5_multilevel_2f,
+         newdata = nd,
+         scale = "linear",
+        re_formula = NA) %>% # 90 x 4 / cloglog-hazard predictions
+    data.frame() %>% 
+    bind_cols(nd)%>% 
+    mutate(cond   = rep(rep(c("N","C","I"),each=30),1),
+         trial  = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500")),
+         period = period_9+9) %>% 
+    #filter(pid==4) %>% # select pid here (1:6) manually
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, ymin = Q2.5, ymax = Q97.5,
+             fill = cond, color = cond)) +
+  geom_ribbon(alpha = 1/5, linewidth = 0) +
+  geom_line() +
+  scale_fill_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_color_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_x_continuous("bin", breaks = 6:15, limits = c(6, 15)) +
+  ylab("fitted cloglog(hazard)") +
+  coord_cartesian(ylim = c(-5, 1)) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ trial)
+```
+
+Typical subject on hazard scale:
+
+```{r}
+# define the `newdata`
+nd <- tibble(incon = 0:1) %>%
+  expand_grid(con  = 0:1,
+                trial_c = c(-0.5,0,0.5),
+                period_9 = -3:6) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(Iperiod_9E2 = period_9^2,
+         Itrial_cE2 = trial_c^2) # 90 x 6 (incon, con, trial_c, period_9, Iperiod_9E2, Itrial_cE2)
+  
+# use `fitted()` and wrangle
+ fitted(b5_multilevel_2f,
+         newdata = nd,
+         scale = "response",
+        re_formula = NA) %>% # 90 x 4 / cloglog-hazard predictions
+    data.frame() %>% 
+    bind_cols(nd)%>% 
+    mutate(cond   = rep(rep(c("N","C","I"),each=30),1),
+         trial  = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500")),
+         period = period_9+9) %>% 
+    #filter(pid==4) %>% # select pid here (1:6) manually
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, ymin = Q2.5, ymax = Q97.5,
+             fill = cond, color = cond)) +
+  geom_ribbon(alpha = 1/5, linewidth = 0) +
+  geom_line() +
+  scale_fill_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_color_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_x_continuous("bin", breaks = 6:15, limits = c(6, 15)) +
+  ylab("fitted hazard") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ trial)
+```
+
+Third, use add_epred_draws() and compare.
+
+```{r}
+# define the `newdata`
+nd <- tibble(pid = 1:6) %>%
+  expand_grid(incon = 0:1,
+                con  = 0:1,
+                trial_c = c(-0.5,0,0.5),
+                period_9 = -3:6) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(Iperiod_9E2 = period_9^2,
+         Itrial_cE2 = trial_c^2) # 540 x 7 (pid, incon, con, trial_c, period_9, Iperiod_9E2, Itrial_cE2)
+  
+# use `add_epred_draws()` and wrangle
+ add_epred_draws(b5_multilevel_2f,
+         newdata = nd,
+         re_formula = NULL) %>% # 4,320,000 (=540x8000) x 12 / hazard predictions !!
+    #data.frame() %>% 
+    #bind_cols(nd)%>% 
+   ungroup() %>%
+  #  mutate(cond   = rep(rep(c("N","C","I"),each=30*8000),6),
+  #       trial  = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500")),
+  #       period = period_9+9) %>% 
+  #  filter(pid==4) %>% # select pid here (1:6) manually
+   group_by(.row)%>%
+    mutate(epred = mean_qi(.epred)) %>%
+   select(.epred, epred) %>%
+   slice(1)
+
+# compare to `fitted()` 
+ fitted(b5_multilevel_2f,
+         newdata = nd,
+         scale = "response") # same values for epred and Estimate!!!
+ 
+   
+```
+
+
+Third, use add_linpred_draws().
+
+```{r}
+# define the `newdata`
+nd <- tibble(pid = 1:6) %>%
+  expand_grid(incon = 0:1,
+                con  = 0:1,
+                trial_c = c(-0.5,0,0.5),
+                period_9 = -3:6) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(Iperiod_9E2 = period_9^2,
+         Itrial_cE2 = trial_c^2) # 540 x 7 (pid, incon, con, trial_c, period_9, Iperiod_9E2, Itrial_cE2)
+
+# use `add_epred_draws()` and wrangle
+ add_linpred_draws(b5_multilevel_2f,
+         newdata = nd,
+         re_formula = NULL)  # 4,320,000 (=540x8000) x 12 / cloglog-hazard .linpred !!
+```
+ 
+
+Fourth, use add_predicted_draws().
+
+```{r}
+# define the `newdata`
+nd <- tibble(pid = 1:6) %>%
+  expand_grid(incon = 0:1,
+                con  = 0:1,
+                trial_c = c(-0.5,0,0.5),
+                period_9 = -3:6) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(Iperiod_9E2 = period_9^2,
+         Itrial_cE2 = trial_c^2) # 540 x 7 (pid, incon, con, trial_c, period_9, Iperiod_9E2, Itrial_cE2)
+  
+# use `add_epred_draws()` and wrangle
+ add_predicted_draws(b5_multilevel_2f,
+         newdata = nd,
+         re_formula = NULL) # 4,320,000 (=540x8000) x 12 / 0/1 .prediction !!
+``` 
+
+
+
+
 
 
 ## generate fake data for Knot study, and fit max random effects model
