@@ -1,0 +1,654 @@
+---
+title: "effects.Rmd"
+author: "sven panis"
+date: "2024-05-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Here we will visualize the effects in various models.
+
+# load the libraries that we will be using #
+
+```{r load-pkg}
+pkg <- c("standist", "tidyverse", "RColorBrewer", "patchwork", 
+         "tidybayes", "bayesplot")
+
+lapply(pkg, library, character.only = TRUE)
+```
+
+# Models build
+
+```{r}
+b0.general1 <- readRDS("models/b0.general1.rds")
+b1.general1_prime <- readRDS("models/b1.general1.prime.rds") # model b
+b1.general1_prime_prior <- readRDS("models/b1.general1_prime_prior.rds") # model c
+
+b2.constant <- readRDS("models/b2.constant.rds")
+b2.linear <- readRDS("models/b2.linear")
+b2.cubic <- readRDS("models/b2.cubic")
+b2.factor <- readRDS("models/b2.factor")
+b2.general <- readRDS("models/b2.general")
+
+b4_general_nointeractions <- readRDS("models/b4_general_nointeractions")
+b4_general_interactions2 <- readRDS("models/b4_general_interactions2")
+b4_general_interactions_nonlinear2 <- readRDS("models/b4_general_interactions_nonlinear2")
+b4_general_interactions_nonlinear_noprop3 <- readRDS("models/b4_general_interactions_nonlinear_noprop3")
+
+#b5_multilevel_1 <- readRDS("models/b5_multilevel_1")
+b5_multilevel_2f <- readRDS("models/b5_multilevel_2f.rds")
+
+
+```
+
+Let's display fitted hazard and survivor functions for model c. 
+
+First, we can create a table with the posterior means, ignoring uncertainty.
+
+```{r}
+tibble(time  = 6:15,
+       alpha = fixef(b1.general1_prime_prior)[1:10, 1],
+       beta_con  = fixef(b1.general1_prime_prior)[11, 1],
+       beta_incon  = fixef(b1.general1_prime_prior)[12, 1]) %>% 
+  mutate(lh0 = alpha, # logit-hazard
+         lh_con = alpha + beta_con,
+         lh_incon = alpha + beta_incon) %>% 
+  mutate(h0 = inv_logit_scaled(lh0), # hazard
+         h_con = inv_logit_scaled(lh_con),
+         h_incon = inv_logit_scaled(lh_incon)) %>% 
+  mutate(s0 = cumprod(1 - h0), # survival probabilities
+         s_con = cumprod(1 - h_con),
+         s_incon = cumprod(1 - h_incon)) %>% 
+  # this just simplifies the output
+  mutate_if(is.double, round, digits = 4)
+```
+
+To make a plot, we go beyond posterior means and reintroduce the uncertainty in the model.
+
+For the disaggregated (ptb) data used to fit b1.general1_prime_prior model, here is how we might define the newdata, pump it through the model using fitted(), and wrangle.
+
+```{r}
+nd <-
+  crossing(incon   = 0:1,
+           con = 0:1,
+           period = 6:15) %>% 
+  filter(!(con == 1 & incon == 1)) %>%
+  mutate(condition = rep(c("Neutral","Congruent","Incongruent"),each=10),
+         condition = factor(condition)) %>%
+  mutate(d6  = if_else(period == 6, 1, 0),
+         d7  = if_else(period == 7, 1, 0),
+         d8  = if_else(period == 8, 1, 0),
+         d9  = if_else(period == 9, 1, 0),
+         d10 = if_else(period == 10, 1, 0),
+         d11 = if_else(period == 11, 1, 0),
+         d12 = if_else(period == 12, 1, 0),
+         d13 = if_else(period == 13, 1, 0),
+         d14 = if_else(period == 14, 1, 0),
+         d15 = if_else(period == 15, 1, 0))
+
+f <-
+  fitted(b1.general1_prime_prior,
+         newdata = nd,
+         scale = "linear") %>% 
+  data.frame() %>% 
+  bind_cols(nd) #%>% 
+  #mutate(con = str_c("con = ", con),
+  #       incon = str_c("incon = ", incon))
+
+f
+```
+
+Now make a plot.
+
+```{r}
+# logit(hazard)
+p1 <-
+  f %>% 
+  
+  ggplot(aes(x = period, group = condition,
+             fill = condition, color = condition)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = Estimate)) +
+  labs(subtitle = "fitted logit(hazard)",
+       y = NULL) +
+  coord_cartesian(ylim = c(-4, 1)) +
+  theme(legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(color = "grey92"),
+        legend.position = "inside",
+        legend.position.inside = c(.1, .74))
+
+# hazard
+p2 <-
+  f %>% 
+  mutate_at(vars(Estimate, Q2.5, Q97.5), .funs = inv_logit_scaled) %>% 
+  
+  ggplot(aes(x = period, group = condition,
+             fill = condition, color = condition)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = Estimate)) +
+  labs(subtitle = "fitted hazard",
+       y = NULL) +
+  coord_cartesian(ylim = c(0, .7)) +
+  theme(legend.position = "none")
+
+# survival
+p3 <-
+  f %>% 
+  mutate_at(vars(Estimate, Q2.5, Q97.5), .funs = inv_logit_scaled) %>% 
+  group_by(condition) %>% 
+  mutate(s       = cumprod(1 - Estimate),
+         s_lower = cumprod(1 - Q2.5),
+         s_upper = cumprod(1 - Q97.5)) %>% 
+  ungroup() %>%
+  #select(period:d15, s:s_upper)
+  
+  ggplot(aes(x = period, group = condition,
+             fill = condition, color = condition)) +
+  geom_hline(yintercept = .5, color = "white") +
+  #geom_segment(x = imls[1], xend = imls[1],
+  #             y = -Inf, yend = .5,
+  #             color = "white", linetype = 2) +
+  #geom_segment(x = imls[2], xend = imls[2],
+  #             y = -Inf, yend = .5,
+  #             color = "white", linetype = 2) +
+  geom_ribbon(aes(ymin = s_lower, ymax = s_upper),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = s)) + 
+  scale_y_continuous(NULL, breaks = c(0, .5, 1)) +
+  labs(subtitle = "fitted survival probability") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(legend.position = "none")
+
+p4 <-
+  f %>% 
+  mutate_at(vars(Estimate, Q2.5, Q97.5), .funs = exp) %>% 
+  
+  ggplot(aes(x = period, group = condition,
+             fill = condition, color = condition)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = Estimate)) +
+  labs(subtitle = "fitted odds(hazard)",
+       y = NULL) +
+  coord_cartesian(ylim = c(0, 2)) +
+  theme(legend.position = "none")
+```
+
+```{r}
+(p1 / p2 / p3 / p4) &
+  scale_fill_viridis_d(NULL, option = "A", end = .6) &
+  scale_color_viridis_d(NULL, option = "A", end = .6) &
+  scale_x_continuous("Time bin rank", breaks = 6:15, limits = c(6, 15), labels=c(6:15*40)) &
+  theme(panel.grid = element_blank())
+```
+
+
+Plot marginal posteriors of model b:
+
+```{r}
+draws <- as_draws_df(b1.general1_prime)
+
+draws %>% 
+  pivot_longer(b_con:b_incon) %>% 
+  
+  ggplot(aes(x = value, y = name, fill = after_stat(x > 0))) +
+  stat_slab() +
+  scale_fill_manual(values = c("blue3", "red3")) +
+  labs(x = "marginal posterior",
+       y = NULL) +
+  coord_cartesian(ylim = c(1.5, 2.5)) +
+  theme(panel.grid = element_blank())
+```
+
+What proportion of posterior draws is zero or below?
+
+```{r}
+draws %>% 
+  pivot_longer(b_con:b_incon) %>% 
+  group_by(name) %>% 
+  summarise(`percent zero or below` = 100 * mean(value <= 0))
+```
+
+95% Bayesian credible intervals 
+
+```{r}
+fixef(b1.general1_prime)
+
+```
+
+95% highest density intervals
+
+```{r}
+draws %>% 
+  pivot_longer(b_con:b_incon) %>% 
+  group_by(name) %>% 
+  mean_hdi(value)
+```
+
+Transform posterior credible intervals to odds-ratio metric
+
+```{r}
+fixef(b1.general1_prime)[c("con", "incon"), -2] %>% exp()
+```
+
+```{r}
+draws %>% 
+  pivot_longer(b_con:b_incon) %>% 
+  mutate(`odds ratio` = exp(value)) %>% 
+  
+  ggplot(aes(x = `odds ratio`, y = name)) +
+  stat_interval(size = 5, .width = seq(from = .1, to = .9, by = .2)) +
+  scale_color_grey("CI level:", start = .8, end = .2) +
+  scale_x_continuous(breaks = 0:3) +
+  ylab(NULL) +
+  coord_cartesian(xlim = c(0, 3)) +
+  theme(legend.position = "top",
+        panel.grid = element_blank())
+```
+
+
+# Compare models (constant, linear, ... , general) in a graph
+
+```{r}
+make_fitted <- function(fit, scale, ...) {
+  
+  fitted(fit,
+         newdata = nd,
+         scale = scale,
+         ...) %>% 
+    data.frame() %>% 
+    bind_cols(nd)
+}
+```
+
+Plot fitted logit(hazard) - scale = linear
+
+```{r}
+nd <- tibble(period_factor = 6:15)
+
+f <- make_fitted(b2.factor, scale = "linear") %>% rename(period = period_factor)
+
+# this will simplify the `mutate()` code below
+models <- c("constant", "linear", "quadratic", "cubic", "general")
+
+nd <- tibble(period = 6:15)
+
+f <-
+  bind_rows(make_fitted(b2.constant, scale = "linear"),  # constant
+            make_fitted(b2.linear, scale = "linear"),  # linear
+            make_fitted(b2.quad, scale = "linear"),  # quadratic
+            make_fitted(b2.cubic, scale = "linear"),  # cubic
+            f) %>%                                   # general
+  mutate(model = factor(rep(models, each = 10),
+                        levels = models))
+
+# what have we done?
+glimpse(f)
+```
+
+```{r}
+p1 <-
+  f %>% 
+  ggplot(aes(x = period, y = Estimate, color = model)) +
+  geom_line() +
+  scale_color_viridis_d(option = "A", direction = -1) +
+  ylab("Fitted logit(hazard)") +
+  coord_cartesian(ylim = c(-4, 1)) +
+  theme(panel.grid = element_blank())
+```
+
+Plot fitted hazard
+
+```{r}
+nd <- tibble(period_factor = 6:15)
+
+f <- make_fitted(b2.factor, scale = "response") %>% rename(period = period_factor)
+
+nd <- tibble(period = 6:15)
+
+f <-
+  bind_rows(make_fitted(b2.constant, scale = "response"),  # constant
+            make_fitted(b2.linear, scale = "response"),  # linear
+            make_fitted(b2.quad, scale = "response"),  # quadratic
+            make_fitted(b2.cubic, scale = "response"),  # cubic
+            f) %>%                                     # general
+  mutate(model = factor(rep(models, each = 10),
+                        levels = models))
+```
+
+```{r}
+p2 <-
+  f %>% 
+  filter(model %in% c("quadratic", "general")) %>% 
+  
+  ggplot(aes(x = period, y = Estimate, color = model)) +
+  geom_line() +
+  scale_color_viridis_d(option = "A", end = .5, direction = -1) +
+  ylab("Fitted hazard") +
+  coord_cartesian(ylim = c(0, .5)) +
+  theme(legend.position = "none",
+        panel.grid = element_blank())
+```
+
+Fitted survivor functions
+
+```{r}
+p3 <-
+  f %>% 
+  filter(model %in% c("quadratic", "general")) %>% 
+  select(Estimate, period, model) %>% 
+  # add the `new_rows` data
+  #bind_rows(new_rows) %>%
+  arrange(model, period) %>%
+  group_by(model) %>% 
+  # convert hazards to survival probabilities
+  mutate(Estimate = cumprod(1 - Estimate)) %>%
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, color = model)) +
+  geom_hline(yintercept = .5, color = "white") +
+  geom_line() +
+  scale_color_viridis_d(option = "A", end = .5, direction = -1) +
+  scale_y_continuous("Fitted survival probability", breaks = c(0, .5, 1)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(legend.position = "none",
+        panel.grid = element_blank())
+```
+
+```{r}
+p1 + p2 + p3 + 
+  plot_layout(guides = "collect") &
+  scale_x_continuous("Time bin", breaks = 6:15, limits = c(6, 15))
+```
+
+# Plot posterior distributions of hazard ratios for con and incon, for trials 500,1000, and 1500 (models b4_general_nointeractions, b4_general_interactions2).
+
+```{r}
+as_draws_df(b4_general_interactions2) %>% # 8000 x 17 (b_d6, ... , )
+  expand_grid(incon = 0:1,
+              con  = 0:1,
+              trial_c = c(-0.5,0,0.5)) %>% # 96000 rows
+  filter(!(con ==1 & incon == 1)) %>% # 72000
+
+  
+  mutate(hr = exp(b_con * con + b_trial_c * trial_c  + `b_con:trial_c` * con * trial_c +
+                  b_incon * incon + `b_incon:trial_c` * incon * trial_c),
+         Condition       = rep(c("N","N","N","C","C","C","I","I","I"), 8000),
+         trial_C = str_c("trial_c=",trial_c*1000+1000)) %>% 
+  
+  ggplot(aes(x = hr, y = 0)) +
+  stat_halfeye(.width = .95, normalize = "panels") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_grid(Condition ~ trial_C)
+```
+
+Plot predicted cloglog(hazard)
+
+```{r}
+# define the `newdata`
+nd <- tibble(period = 6:15) %>%
+    expand_grid(incon = 0:1,
+              con  = 0:1,
+              trial_c = c(-0.5,0,0.5)) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(d6 = if_else(period == 6, 1, 0),
+                           d7 = if_else(period == 7, 1, 0),
+                           d8 = if_else(period == 8, 1, 0),
+                           d9 = if_else(period == 9, 1, 0),
+                           d10 = if_else(period == 10, 1, 0),
+                           d11 = if_else(period == 11, 1, 0),
+                           d12 = if_else(period == 12, 1, 0),
+                           d13 = if_else(period == 13, 1, 0),
+                           d14 = if_else(period == 14, 1, 0),
+                           d15 = if_else(period == 15, 1, 0))
+  
+
+# use `fitted()` and wrangle
+make_fitted(b4_general_interactions2, scale = "response") %>% 
+  mutate(cond = rep(rep(c("N","C","I"),each=3),10)   ,
+         trial    = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500"))) %>% 
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, ymin = Q2.5, ymax = Q97.5,
+             fill = cond, color = cond)) +
+  geom_ribbon(alpha = 1/5, linewidth = 0) +
+  geom_line() +
+  scale_fill_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_color_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_x_continuous("bin", breaks = 6:15, limits = c(6, 15)) +
+  ylab("fitted cloglog(hazard)") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ trial)
+```
+
+# model b5_multilevel_2f: Plot predicted cloglog(hazard) for single subject using fitted() in make_fitted().
+
+```{r}
+# define the `newdata`
+nd <- tibble(pid = 1:6) %>%
+  expand_grid(incon = 0:1,
+                con  = 0:1,
+                trial_c = c(-0.5,0,0.5),
+                period_9 = -3:6) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(Iperiod_9E2 = period_9^2,
+         Itrial_cE2 = trial_c^2)
+  
+# use `fitted()` and wrangle
+make_fitted(b5_multilevel_2f, scale = "linear")%>% 
+  mutate(cond   = rep(rep(c("N","C","I"),each=30),6),
+         trial  = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500")),
+         period = period_9+9) %>% 
+  
+  filter(pid==4) %>% # select pid here (1:6) manually
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, ymin = Q2.5, ymax = Q97.5,
+             fill = cond, color = cond)) +
+  geom_ribbon(alpha = 1/5, linewidth = 0) +
+  geom_line() +
+  scale_fill_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_color_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_x_continuous("bin", breaks = 6:15, limits = c(6, 15)) +
+  ylab("fitted cloglog(hazard)") +
+  coord_cartesian(ylim = c(-5, 1)) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ trial)
+```
+
+Same on hazard scale
+
+```{r}
+# define the `newdata`
+nd <- tibble(pid = 1:6) %>%
+  expand_grid(incon = 0:1,
+                con  = 0:1,
+                trial_c = c(-0.5,0,0.5),
+                period_9 = -3:6) %>%
+  filter(!(con ==1 & incon == 1)) %>%
+  mutate(Iperiod_9E2 = period_9^2,
+         Itrial_cE2 = trial_c^2)
+  
+# use `fitted()` and wrangle
+make_fitted(b5_multilevel_2f, scale = "response")%>% 
+  mutate(cond   = rep(rep(c("N","C","I"),each=30),6),
+         trial  = factor(trial_c,levels=c(-0.5,0.0,0.5),labels=c("500","1000","1500")),
+         period = period_9+9) %>% 
+  
+  filter(pid==5) %>% # select pid here (1:6) manually
+  
+  # plot!
+  ggplot(aes(x = period, y = Estimate, ymin = Q2.5, ymax = Q97.5,
+             fill = cond, color = cond)) +
+  geom_ribbon(alpha = 1/5, linewidth = 0) +
+  geom_line() +
+  scale_fill_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_color_viridis_d(NULL, option = "A", end = .6, direction = -1) +
+  scale_x_continuous("bin", breaks = 6:15, limits = c(6, 15)) +
+  ylab("fitted hazard") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ trial)
+```
+
+Plot Pareto k estimates
+
+```{r}
+loo(b5_multilevel_2f)$diagnostics %>% 
+  data.frame() %>% 
+  # attach the `id` values
+  bind_cols(dataPS) %>% 
+  mutate(id = 1:n()) %>%
+  
+  ggplot(aes(x = id, y = pareto_k)) +
+  geom_point(alpha = 1/4) + 
+  geom_text(data = . %>% filter(pareto_k > .2),
+            aes(x = id + 100, label = id),
+            size = 3, hjust = 0) +
+  theme(panel.grid = element_blank())
+```
+
+https://cran.r-project.org/web/packages/tidybayes/vignettes/tidy-brms.html
+
+get a list of raw model variable names so that we know what variables we can extract from the model:
+
+```{r}
+get_variables(b5_multilevel_2f)
+```
+
+A. Gather variable (e.g., r_pid) indices (e.g., 1, Intercept) into a separate column
+
+```{r}
+offsets <- b5_multilevel_2f %>%
+                spread_draws(r_pid[subject,term]) # 528,000 obs. of 6 vars
+
+offsets %>% head(10)
+
+offsets %>% filter(term == "con") # 48,000 (6 pid x 8000 draws) x 6 columns (subject, term, r_pid, .chain, .iteration, .draw)
+```
+
+Point summaries (median, mean, mode) and intervals (qi or percentile intervals, hdi)
+
+For example, calculate the median and 95% quantile interval of three variables
+
+```{r}
+b5_multilevel_2f %>%
+  spread_draws(b_Intercept, b_con, b_incon) %>%
+  median_qi()
+```
+
+Or the mean and 95% highest density interval of four variables
+
+```{r}
+b5_multilevel_2f %>%
+  spread_draws(b_period_9, b_trial_c, sd_pid__Intercept, cor_pid__Intercept__period_9) %>%
+  mean_hdi()
+```
+
+In separate rows:
+
+```{r}
+b5_multilevel_2f %>%
+  gather_draws(b_period_9, b_trial_c, sd_pid__Intercept, cor_pid__Intercept__period_9) %>%
+  mean_hdi()
+```
+
+For indexed model variables:
+
+```{r}
+rpid_info <- b5_multilevel_2f %>%
+                spread_draws(r_pid[subject,term]) %>% 
+                mean_qi() # 66 (6 pid x 11 terms) x 8 columns
+
+print.data.frame(rpid_info)
+```
+
+get summary (including median absolute deviation or mad) and convergence diagnostics:
+
+```{r}
+b5_multilevel_2f %>%
+                spread_draws(r_pid[subject,term]) %>% 
+                summarise_draws()
+
+b5_multilevel_2f %>%
+  spread_draws(b_Intercept, b_con, b_incon) %>%
+  summarise_draws()
+```
+
+Combining variables with different indices.
+For example, the intercept for each subject (i.e., estimated cloglog-hazard in bin 9 for baseline condition = Neutral, trial 1000):
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  mutate(subject_intercept = b_Intercept + r_pid) %>%
+  median_qi(subject_intercept)
+```
+
+Plotting intervals with multiple probability levels
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  mutate(subject_intercept = b_Intercept + r_pid) %>%
+  median_qi(subject_intercept, .width = c(.95, .8, .5)) %>%
+  
+  ggplot(aes(y = subject, x = subject_intercept, xmin = .lower, xmax = .upper)) +
+  geom_pointinterval() +
+  theme_minimal()
+```
+
+Intervals with densities
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  mutate(subject_intercept = b_Intercept + r_pid) %>%
+  
+  ggplot(aes(y = factor(subject), x = subject_intercept)) +
+  ggdist::stat_halfeye(.width = c(.95, .8), point_interval = "median_qi")
+```
+
+Diff in subject-intercept between subjects 3 and 2?
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  filter(subject == 2 | subject== 3) %>%
+  pivot_wider(names_from = subject, values_from =  c(b_Intercept, r_pid)) %>%
+  mutate(subject_intercept_diff23 = (b_Intercept_2 + r_pid_2) - (b_Intercept_3 + r_pid_3)) %>%
+  
+  ggplot(aes( x = subject_intercept_diff23)) +
+  ggdist::stat_halfeye(.width = c(.95, .8), point_interval = "median_qi")
+```
+
+
+Diff in subject-intercept between subjects 5 and 6?
+
+```{r}
+b5_multilevel_2f %>% 
+  spread_draws(b_Intercept, r_pid[subject,term]) %>%
+  filter(term == "Intercept") %>% # 48,000 x 7
+  filter(subject == 5 | subject== 6) %>%
+  pivot_wider(names_from = subject, values_from =  c(b_Intercept, r_pid)) %>%
+  mutate(subject_intercept_diff56 = (b_Intercept_5 + r_pid_5) - (b_Intercept_6 + r_pid_6)) %>%
+  
+  ggplot(aes( x = subject_intercept_diff56)) +
+  ggdist::stat_halfeye(.width = c(.95, .8), point_interval = "median_qi")
+```
+
+
+
+
+
