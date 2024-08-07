@@ -45,6 +45,8 @@ devtools::install_github("jmgirard/standist")
 install.packages(c("brms", "tidybayes", "bayesplot", "future"))
 
 install.packages("sn") # to sample from skew-normal distribution
+
+install.packages("extraDistr")
 ```
 
 
