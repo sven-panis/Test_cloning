@@ -109,6 +109,29 @@ visualize("normal(0, 0.5)", "normal(0, 1)", "normal(0, 2)", "normal(0,4)",
 (0,4) for the intercepts provides good coverage for what we might expect
 for the logit hazard in each bin (between -8 and 8).
 
+# visualize logit and cloglog links
+
+```{r}
+prob <- (1:9999)/10000
+logistic <- function(x) { return( 1/(1+exp(-1*x)) )}
+logit    <- function(x) { return( log(x/(1-x)) )}
+invcloglog <- function(x) { return( 1-(exp(-1*exp(x))) )}
+cloglog    <- function(x) { return( log(-1*log(1-x)) )}
+
+cloglog_prob <- cloglog(prob)
+logit_prob <- logit(prob)
+
+data <- cbind(prob,cloglog_prob,logit_prob)
+data %>% ggplot(aes(x=prob)) +
+  geom_line(aes(y=logit_prob), color="green")+
+  geom_line(aes(y=cloglog_prob), color="red")
+
+logistic(0) # 0.5
+invcloglog(0) # 0.6321
+```
+
+
+
 ## set priors ##
 
 ```{r b0.general-set-priors}
@@ -140,6 +163,10 @@ plot(b0.general1)
 ```
 
 
+
+
+
+
 ## Run a second model including the experimental factor PRIME with three levels (using both dichotomous variables con and incon)
 
 ```{r b1.general1-prime-formula}
@@ -159,9 +186,11 @@ here we would normally visualise priors of interest to make a judgment about wha
 would constitute weakly informative priors. 
 
 ```{r b1.general1-prime-vis-priors}
-visualize("normal(0, 0.5)", "normal(0, 1)", "normal(0, 2)", "normal(0,4)", "skew_normal(-1,3,-0.5)" ,
+visualize("normal(-1, 0.5)", "normal(-1, 1)", "normal(-2, 2)", "normal(-1,4)", "skew_normal(-1,3,-0.5)" ,
           xlim = c(-8, 8))
 ```
+
+N(-2,2) for the intercept provides good coverage for what we might expect for the cloglog hazard in each bin: -7.5 until 2.5
 
 (0,4) for the intercepts provides good coverage for what we might expect
 for the logit hazard in each bin.
@@ -334,9 +363,608 @@ as_draws_df(b1.general1_prime) %>%
   facet_wrap(~ name, scales = "free")
 ```
 
+# fit simple cloglog models
 
 
+## b0.general - intercepts only ##
 
+# formula #
+
+```{r b0gencloglog-formula}
+formula_gen = bf(event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15)
+#formula = bf(event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15 + con +incon)
+```
+
+# check the priors available #
+
+```{r b0gencloglog-prior}
+get_prior(formula_gen,
+          data = ptb_data_ind, family = binomial(link=cloglog))
+```
+
+## visualise priors ##
+
+here we would normally visualise priors of interest to make a judgment about what
+would constitute weakly informative priors. 
+
+```{r b0gencloglog-vis-priors}
+visualize("normal(0, 0.5)", "normal(0, 1)", "normal(0, 2)", "normal(0,4)", 
+          xlim = c(-8, 8))
+
+```
+
+
+```{r}
+prior1 <- c(
+  set_prior("normal(0, 4)", class = "b")
+)
+```
+
+# run the first model : general, prior_0
+
+```{r b0-cloglog-prior0-model}
+plan(multicore)
+b0gencloglog_pr0 <- brm(formula = formula_gen,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = NULL,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglog_pr0") 
+summary(b0gencloglog_pr0)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglog_pr0)
+plot(b0gencloglog_pr0)
+```
+
+A table with model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglog_pr0) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+  mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(`time period`, predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+# run the second cloglog model : general, prior1
+
+```{r b0-cloglog-prior1-model}
+plan(multicore)
+b0gencloglog_pr1 <- brm(formula = formula_gen,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = prior1,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglog_pr1") 
+summary(b0gencloglog_pr1)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglog_pr1)
+plot(b0gencloglog_pr1)
+```
+
+A table with model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglog_pr1) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+  mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(`time period`, predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+# same estimates (2 digits) between prior1 and NULL
+
+# run the third cloglog model : general, prior2
+
+```{r}
+prior2 <- c(
+  set_prior("normal(-2, 2)", class = "b")
+)
+```
+
+
+```{r b0-cloglog-prior2-model}
+plan(multicore)
+b0gencloglog_pr2 <- brm(formula = formula_gen,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = prior2,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglog_pr2") 
+summary(b0gencloglog_pr2)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglog_pr2)
+plot(b0gencloglog_pr2)
+```
+
+A table with model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglog_pr2) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+  mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(`time period`, predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+
+# run the fourth cloglog model : general, prior3
+
+```{r}
+#mu=-0.59, sigma = 1.26, alpha = -4.20. # flat prior for cloglog
+prior3 <- c(
+  set_prior("skew_normal(-0.59, 1.26, -4.20)", class = "b")
+)
+```
+
+
+```{r b0-cloglog-prior3-model}
+plan(multicore)
+b0gencloglog_pr3 <- brm(formula = formula_gen,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = prior3,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglog_pr3") 
+summary(b0gencloglog_pr3)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglog_pr3)
+plot(b0gencloglog_pr3)
+get_prior(b0gencloglog_pr3)
+```
+
+A table with model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglog_pr3) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+  mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(`time period`, predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+# estimates are still similar... :)
+
+Fit new models with PRIME info... and priors 0 to 4 (last has separate alpha and beta priors)
+
+# formula #
+
+```{r b0gencloglogPR-formula}
+formula_genPR = bf(event | trials(1) ~ 0 + d6 + d7 + d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15 + con +incon)
+```
+
+# run the first cloglogPR model : generalPR, prior_0
+
+```{r b0-cloglogPR-prior0-model}
+plan(multicore)
+b0gencloglogPR_pr0 <- brm(formula = formula_genPR,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = NULL,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglogPR_pr0") 
+summary(b0gencloglogPR_pr0)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglogPR_pr0)
+plot(b0gencloglogPR_pr0)
+```
+
+A table with 2 model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglogPR_pr0) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+#  mutate(`time period` = str_remove(predictor, "") %>% as.double()) %>% 
+  select(predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate),
+         hr = exp(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+
+```{r}
+tibble(model = str_c("model ", letters[1:2]),
+       fit   = c("b0gencloglog_pr0","b0gencloglogPR_pr0")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+  #flextable::flextable() %>% 
+  #flextable::width(width = 1)
+```
+
+# run the second cloglogPR model : generalPR, prior1
+
+```{r b0-cloglogPR-prior1-model}
+plan(multicore)
+b0gencloglogPR_pr1 <- brm(formula = formula_genPR,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = prior1,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglogPR_pr1") 
+summary(b0gencloglogPR_pr1)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglogPR_pr1)
+plot(b0gencloglogPR_pr1)
+```
+
+A table with model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglogPR_pr1) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+ # mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate),
+         hr = exp(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+```{r}
+tibble(model = str_c("model ", letters[1:2]),
+       fit   = c("b0gencloglog_pr1","b0gencloglogPR_pr1")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+  #flextable::flextable() %>% 
+  #flextable::width(width = 1)
+```
+
+
+# run the third cloglogPR model : generalPR, prior2
+
+```{r b0-cloglogPR-prior2-model}
+plan(multicore)
+b0gencloglogPR_pr2 <- brm(formula = formula_genPR,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = prior2,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglogPR_pr2") 
+summary(b0gencloglogPR_pr2)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglogPR_pr2)
+plot(b0gencloglogPR_pr2)
+```
+
+A table with model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglogPR_pr2) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+ # mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate),
+         hr = exp(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+```{r}
+tibble(model = str_c("model ", letters[1:2]),
+       fit   = c("b0gencloglog_pr2","b0gencloglogPR_pr2")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+```
+
+```{r}
+tibble(model = str_c("model ", letters[1:3]),
+       fit   = c("b0gencloglogPR_pr0","b0gencloglogPR_pr1","b0gencloglogPR_pr2")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+```
+
+# run the fourth cloglogPR model : generalPR, prior3
+
+```{r b0-cloglogPR-prior3-model}
+plan(multicore)
+b0gencloglogPR_pr3 <- brm(formula = formula_genPR,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = prior3,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglogPR_pr3") 
+summary(b0gencloglogPR_pr3)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglogPR_pr3)
+plot(b0gencloglogPR_pr3)
+```
+
+A table with model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglogPR_pr3) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+ # mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate),
+         hr = exp(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+```{r}
+tibble(model = str_c("model ", letters[1:2]),
+       fit   = c("b0gencloglog_pr3","b0gencloglogPR_pr3")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+```
+
+```{r}
+tibble(model = str_c("model ", letters[1:4]),
+       fit   = c("b0gencloglogPR_pr0","b0gencloglogPR_pr1","b0gencloglogPR_pr2","b0gencloglogPR_pr3")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+```
+
+
+# run the fifth cloglogPR model : generalPR, prior4
+
+```{r}
+#mu=-0.59, sigma = 1.26, alpha = -4.20. # flat prior for cloglog
+prior4 <- c(
+  set_prior("skew_normal(-0.59, 1.26, -4.20)", class = "b"), # almost flat on p for  cloglog scale
+  set_prior("skew_normal(-0.2, .7, -2.2)", class = "b", coef = "con"), # regularizing toward invcloglog(0)
+  set_prior("skew_normal(-0.2, .7, -2.2)", class = "b", coef = "incon")
+)
+```
+
+```{r b0-cloglogPR-prior4-model}
+plan(multicore)
+b0gencloglogPR_pr4 <- brm(formula = formula_genPR,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = prior4,
+                iter = 3000, warmup = 1000, cores = 4, chains = 4,
+                save_pars = save_pars(all=TRUE),
+                seed = 123,
+                file = "models/b0gencloglogPR_pr4") 
+summary(b0gencloglogPR_pr4)
+```
+
+## take a look ##
+
+```{r b0.general1-chains}
+summary(b0gencloglogPR_pr4)
+plot(b0gencloglogPR_pr4)
+
+get_prior(b0gencloglogPR_pr4)
+prior_summary(b0gencloglogPR_pr4)
+```
+
+A table with model's estimates on two scales (cloglog, hazard):
+
+```{r}
+fixef(b0gencloglogPR_pr4) %>% 
+  data.frame() %>% 
+  rownames_to_column("predictor") %>% 
+ # mutate(`time period` = str_remove(predictor, "d") %>% as.double()) %>% 
+  select(predictor, Estimate) %>% 
+  mutate(`fitted hazard` = invcloglog(Estimate),
+         hr = exp(Estimate)) %>% 
+  mutate_if(is.double, round, digits = 4) %>% 
+  knitr::kable()
+```
+
+Compare effect of priors on 9 models
+
+```{r}
+tibble(model = str_c("model ", letters[1:5]),
+       fit   = c("b0gencloglogPR_pr0","b0gencloglogPR_pr1","b0gencloglogPR_pr2","b0gencloglogPR_pr3","b0gencloglogPR_pr4")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+```
+
+```{r}
+tibble(model = str_c("model ", letters[1:4]),
+       fit   = c("b0gencloglog_pr0","b0gencloglog_pr1","b0gencloglog_pr2","b0gencloglog_pr3")) %>% 
+  mutate(f = map(fit, ~ get(.) %>% 
+                   fixef() %>% 
+                   data.frame() %>% 
+                   rownames_to_column("parameter"))) %>% 
+  unnest(f) %>% 
+  mutate(e_sd  = str_c(round(Estimate, digits = 2), " (", round(Est.Error, digits = 2), ")")) %>% 
+  select(model, parameter, e_sd) %>% 
+  pivot_wider(names_from = model, values_from = e_sd) %>% 
+  knitr::kable()
+```
+
+Type of prior has no effect here. 
+
+## Compare models using information criteria
+
+```{r}
+log_lik(b0gencloglogPR_pr4) %>% # 8000 x 12840 pointwise log-likelihood samples
+  str()
+```
+
+Calculate LL and deviance for each sample.
+
+```{r}
+ll <-
+  b0gencloglogPR_pr4 %>%
+  log_lik() %>%
+  as_tibble(.name_repair = ~ str_c("c", 1:12840)) %>%
+  mutate(ll = rowSums(.)) %>% 
+  mutate(deviance = -2 * ll) %>% 
+  select(ll, deviance, everything())
+
+ll
+```
+
+```{r}
+ll %>%
+  pivot_longer(ll:deviance) %>% 
+  mutate(name = factor(name, levels = c("ll", "deviance"))) %>% 
+  
+  ggplot(aes(x = value, y = 0)) +
+  stat_halfeye(point_interval = median_qi, .width = .95, normalize = "panels") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  xlab(NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ name, scales = "free")
+```
+
+For all three models:
+
+```{r}
+ll <-
+  tibble(model = str_c("model ", letters[1:3]),
+         name  = c("b0gencloglogPR_pr2","b0gencloglogPR_pr3", "b0gencloglogPR_pr4")) %>% 
+  mutate(fit = map(name, get)) %>% 
+  mutate(ll = map(fit, ~log_lik(.) %>% data.frame() %>% transmute(ll = rowSums(.)))) %>% 
+  select(-fit) %>% 
+  unnest(ll) %>% 
+  mutate(deviance = -2 * ll)
+
+ll %>% 
+  glimpse()
+```
+
+
+```{r}
+ll %>%
+  pivot_longer(ll:deviance,
+               names_to = "statistic") %>% 
+  mutate(statistic = factor(statistic, levels = c("ll", "deviance"))) %>% 
+  
+  ggplot(aes(x = value, y = model)) +
+  stat_halfeye(point_interval = median_qi, .width = .95, normalize = "panels") +
+  labs(x = NULL,
+       y = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ statistic, scales = "free_x")
+```
+
+Using WAIC and LOO for comparing nonnested models.
+
+```{r}
+b0gencloglogPR_pr2  <- add_criterion(b0gencloglogPR_pr2, c("loo", "waic"))
+b0gencloglogPR_pr3  <- add_criterion(b0gencloglogPR_pr3, c("loo", "waic"))
+b0gencloglogPR_pr4  <- add_criterion(b0gencloglogPR_pr4, c("loo", "waic"))
+```
+
+Compare all three models:
+
+```{r}
+loo_compare(b0gencloglogPR_pr2, b0gencloglogPR_pr3, b0gencloglogPR_pr4, criterion = "loo") %>% print(simplify = F)
+loo_compare(b0gencloglogPR_pr2, b0gencloglogPR_pr3, b0gencloglogPR_pr4, criterion = "waic") %>% print(simplify = F)
+```
+
+```{r}
+model_weights(b0gencloglogPR_pr2, b0gencloglogPR_pr3, b0gencloglogPR_pr4, weights = "loo") %>% round(digits = 3)
+
+model_weights(b0gencloglogPR_pr2, b0gencloglogPR_pr3, b0gencloglogPR_pr4, weights = "waic") %>% round(digits = 3)
+
+model_weights(b0gencloglogPR_pr2, b0gencloglogPR_pr3, b0gencloglogPR_pr4, weights = "stacking") %>% round(digits = 3)
+```
+
+
+######################################################
 
 ## Intermezzo: priors
 
@@ -344,38 +972,81 @@ Simulate from Normal(0,4) and transform the draws back into the probability metr
 
 ```{r}
 set.seed(11)
-log_odds <- function(p) {
-  log(p / (1 - p))
-}
-odds <- function(p) {
-  p/(1-p)
-}
-cloglog <- function(p){
-  log(-log(1-p))
-}
+#log_odds <- function(p) {
+##  log(p / (1 - p))
+#}
+#odds <- function(p) {
+#  p/(1-p)
+#}
+#cloglog <- function(p){
+#  log(-log(1-p))
+#}
 
-inv_cloglog <- function(p){
-  1-exp(-exp(p))
-}
+#inv_cloglog <- function(p){
+#  1-exp(-exp(p))
+#}
 # logit
-tibble(log_odds = rnorm(1e6, mean = 0, sd = 2)) %>% # first prior used 1. 1.5.  2
-  mutate(p = inv_logit_scaled(log_odds)) %>% 
+tibble(log_odds = rnorm(1e6, mean = 0, sd = 1.5)) %>% # N(0,1) regularized gently toward .5
+  mutate(p = logistic(log_odds)) %>% 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
   scale_y_continuous(NULL, breaks = NULL) +
   theme(panel.grid = element_blank())
+
 #cloglog
-tibble(cloglog = rnorm(1e6, mean = -1, sd = 1.1)) %>%  # good intercept prior
-  #sd = 1.7 seems good prior with mean 0, flat except for a density peak at 1
-  mutate(p = inv_cloglog(cloglog)) %>% 
+tibble(clog_log = rnorm(1e6, mean = -1, sd = 1.1)) %>%  
+  # good intercept prior : -1, 1.1/-1.4,1/-1.4,1.3/-1.4,1.2
+  # good beta prior : 
+  mutate(p = invcloglog(clog_log)) %>% 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
   scale_y_continuous(NULL, breaks = NULL) +
   theme(panel.grid = element_blank())
+
+# check other distributions
+library(sn)
+#cloglog. uniform
+tibble(clog_log = runif(1e6, min = -4, max = 2)) %>%  
+  mutate(p = invcloglog(clog_log)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+# cloglog skew normal
+tibble(clog_log = rsn(1e6, xi = 0.5, omega=1, alpha =-2)) %>%  # 0.5, 1, -2 /beta.  SN
+  mutate(p = invcloglog(clog_log)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+
+# cloglog skew normal
+tibble(clog_log = rskew_normal(1e6, mu = -0.2, sigma=.7, alpha =-2.2)) %>%  # -0.3, 1, -2 /-0.2,.7,-2.2beta !!!!!!!
+  mutate(p = invcloglog(clog_log)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+
+# generate draws from sn
+dat <- 
+  tibble(c1 = rsn(1e6, 0.5, 1,-2), # xi omega alpha
+         c2 = rskew_normal(1e6,-0.2,.7,-2.2)) %>% # mu sigma alpha
+  mutate(p1 = invcloglog(c1),
+         p2 = invcloglog(c2)) 
+
+plot(density(dat$c2))
+plot(density(dat$p2))
+
 
 ```
 
-First make no sense for hazard models...
+N(0,4) make no sense for logit-hazard models.
+
+
+
 
 Compare three standard deviations.
 
@@ -395,10 +1066,10 @@ tibble(sd = c(2, 1.5, 1)) %>%
   facet_wrap(~ sd)
 
 tibble(sd = c(1,1.1,1.2,1.3,1.4,1.5)) %>% 
-  mutate(cloglog = map(sd, ~rnorm(1e6, mean = -1, sd = .))) %>% # 1.1 good for intercept intercept
-  unnest(cloglog) %>% 
+  mutate(clog_log = map(sd, ~rnorm(1e6, mean = -1, sd = .))) %>% # 1.1 good for intercept intercept
+  unnest(clog_log) %>% 
   mutate(sd = str_c("sd = ", sd),
-         p  = inv_cloglog(cloglog)) %>% 
+         p  = invcloglog(clog_log)) %>% 
 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
@@ -412,23 +1083,23 @@ tibble(sd = c(1,1.1,1.2,1.3,1.4,1.5)) %>%
 The log-odds Normal(0,1) gently regularizes p towards .5, but still allows for stronger values. This might be a good prior to use for the beta parameters. 
 
 ```{r}
-tibble(sigma = c(1,1.1,1.2,1.3,1.4,1.5)) %>% 
-  mutate(cloglog = map(sigma, ~rskew_normal(1e6, -1, sigma = ., alpha = -1))) %>% 
-  unnest(cloglog) %>% 
-  mutate(sigma = str_c("sigma = ", sigma),
-         p  = inv_cloglog(cloglog)) %>% 
+tibble(omega = c(1,1.1,1.2,1.3,1.4,1.5)) %>% 
+  mutate(clog_log = map(omega, ~rsn(1e6, -1, omega = ., alpha = 2))) %>% 
+  unnest(clog_log) %>% 
+  mutate(omega = str_c("omega = ", omega),
+         p  = invcloglog(clog_log)) %>% 
 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
   scale_y_continuous(NULL, breaks = NULL) +
   theme(panel.grid = element_blank()) +
-  facet_wrap(~ sigma)
+  facet_wrap(~ omega)
 
 tibble(alpha = c(-8,-7,-6, -5,-4,-3)) %>% 
-  mutate(cloglog = map(alpha, ~rskew_normal(1e6, -0.5, sigma = .95, alpha = .))) %>% #!!!!!!! -0.5, .95,-4
-  unnest(cloglog) %>% 
+  mutate(clog_log = map(alpha, ~rsn(1e6, -0.5, sigma = .95, alpha = .))) %>% #!!!!!!! -0.5, .95,-4
+  unnest(clog_log) %>% 
   mutate(alpah = str_c("alpha = ", alpha),
-         p  = inv_cloglog(cloglog)) %>% 
+         p  = invcloglog(clog_log)) %>% 
 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
@@ -439,10 +1110,11 @@ tibble(alpha = c(-8,-7,-6, -5,-4,-3)) %>%
 
 tibble(alpha = c(-2, -1, 0, 1, 2),
        sigma = c(1,2,3,4,5)) %>% 
-  mutate(cloglog = map2(sigma, alpha, ~rskew_normal(1e6, -1, sigma = ., alpha = .))) %>% 
-  unnest(cloglog) %>% 
-  mutate(sd = str_c("alpha = ", alpha),
-         p  = inv_cloglog(cloglog)) %>% 
+  mutate(clog_log = map2(sigma, alpha, ~rsn(1e6, -1, sigma = ., alpha = .))) %>% 
+  unnest(clog_log) %>% 
+  mutate(alpha = str_c("alpha = ", alpha),
+         sigma = str_c("sigma = ", sigma)
+         p  = invcloglog(clog_log)) %>% 
 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
@@ -463,23 +1135,11 @@ Solomon Kurz proposes to simulate a large number of draws from the Uniform(0,1) 
 
 ```{r}
 set.seed(11)
-log_odds <- function(p) {
-  log(p / (1 - p))
-}
-odds <- function(p) {
-  p/(1-p)
-}
-cloglog <- function(p){
-  log(-log(1-p))
-}
 
-inv_cloglog <- function(p){
-  1-exp(-exp(p))
-}
 # generate draws from U(0,1)
 dat <- 
   tibble(p = runif(1e5, 0, 1)) %>% 
-  mutate(g = log_odds(p),
+  mutate(g = logit(p),
          c = cloglog(p)) 
 # display
 dat %>%   
@@ -505,11 +1165,22 @@ fit11.11b <-
       c ~ 1,
       chains = 4, cores = 4,
       file = "models/fit11.11b")
+
+fit11.11b2 <-
+  brm(data = dat,
+      family = student(),
+      c ~ 1,
+      chains = 4, cores = 4,
+      file = "models/fit11.11b2")
+
 ```
 
 ```{r}
 print(fit11.11)
 print(fit11.11b)
+print(fit11.11b2)
+
+
 pp_check(fit11.11b)
 ```
 
@@ -527,15 +1198,10 @@ tibble(g = rt(1e6, df = 7.61)* 1.57) %>% # simulate from student t
   theme(panel.grid = element_blank())
 
 
+library(extraDistr)
 # cloglog
-library(sn)
-
-tibble(c = rsn(1e6, xi=-0.59, omega = 1.26, alpha = -4.20) ) %>% # simulate from skew-normal distribution
-
-#tibble(c = rsn(1e6, xi=-1, omega = 1, alpha = -2) ) %>% # simulate from skew-normal distribution
- 
-   mutate(p = inv_cloglog(c)) %>% 
-  
+tibble(g = rlst(1e6, df = 5.98, mu=-0.45 , sigma= 1.05)) %>% # simulate from student t
+  mutate(p = invcloglog(g)) %>% 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
   scale_y_continuous(NULL, breaks = NULL) +
@@ -543,13 +1209,26 @@ tibble(c = rsn(1e6, xi=-0.59, omega = 1.26, alpha = -4.20) ) %>% # simulate from
 
 
 
+# cloglog
+library(sn)
+
+tibble(c = rskew_normal(1e6, mu=-0.59, sigma = 1.26, alpha = -4.20) ) %>% # simulate from skew-normal #distribution !!!!!!!! for intercept 
+#  !!!!!!!!!
+
+#tibble(c = rsn(1e6, xi=-1, omega = 1, alpha = -2) ) %>% # simulate from skew-normal distribution
+ 
+   mutate(p = invcloglog(c)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
 
 # generate draws from sn
 dat <- 
   tibble(c1 = rsn(1e5, -1, 1,-1),
-         c2 = rskew_normal(1e5,-1,1,-2)) %>% # use as prior for cloglog intercept !!
-  mutate(p1 = inv_cloglog(c1),
-         p2 = inv_cloglog(c2)) 
+         c2 = rskew_normal(1e5,-0.59,1.26,-4.2)) %>% # use as prior for cloglog intercept !!
+  mutate(p1 = invcloglog(c1),
+         p2 = invcloglog(c2)) 
 
 plot(density(dat$c2))
 plot(density(dat$p2))
@@ -567,16 +1246,99 @@ dat %>%
   geom_histogram(bins = 50) +
   scale_y_continuous(NULL, breaks = NULL) +
   theme(panel.grid = element_blank())
+```
 
+Check code from Alexis. https://stats.stackexchange.com/questions/367184/simulation-discrete-time-hazard-model
 
+```{r}
+N <- 12 # trials
+T = 20 # censoring time
 
+ID <- 1:N
+Data <- data.frame(ID)
+
+# Create conditioning variables (e.g., two dichotomous vars here, but
+# these could be whatever number and kind), and bind these to your 
+# data set
+var1 <- c(rep(0,(N/2)),rep(1,N/2))
+var2 <- c(rep(0,(N/4)),rep(1,(N/2)),rep(0,(N/4)))
+Data <- cbind(Data,var1,var2)
+
+# set up person-period structure
+expand <- function(x,t) {
+  data <- x[rep(1:length(x[,1]), each = t), ]
+  rownames(data) <- NULL
+  return(data)
+  }
+
+ Data <- expand(Data, T)
+ Data$period <- rep(1:T,N)
+  
+ for (t in 1:T) {
+       varname <- paste("t",t,sep="")
+       Data[,varname] <- as.integer(0 + Data$period == t)
+   }
+```
+
+Prepare effect of time on discrete-time hazard function
+
+Based on your above model assumptions about how ℎ𝑡 relates to time:
+
+```{r}
+#i. Constant baseline hazard:
+# for a nominal hazard of 0.1:
+conslogit   <- logit(0.1)   # logit(.1)   = -2.1972246
+conscloglog <- cloglog(0.1)
+
+#ii. Baseline hazard as a linear function of time
+
+# for a linear effect of time on hazard of 0.05 per 1-unit increase in t:
+linearcloglog   <- cloglog(invcloglog(0) + 0.05)
+
+#iii. Baseline hazard as a fully discrete function of time
+# for a fully discrete time effect on hazard (no. of discrete values
+# should equal T; here there are 20):
+discretehazards <- c(0.01, 0.01, 0.06, 0.20, 0.27, 0.37, 0.47, 0.50, 0.51, 0.52, 0.66, 0.76, 0.86, 0.96, 0.03, 0.15, 0.05, 0.11, 0.08, 0.14)
+discretecloglog   <- cloglog(discretehazards)
 
 ```
 
+Prepare effects of conditioning variables on ℎ𝑡
+
+```{r}
+# for a nominal effect of var1 of 0.06 increase in hazard:
+var1cloglog   <- cloglog(invcloglog(0) + 0.06)
+#
+# for a nominal hazard effect of var2 of 0.04:
+var2cloglog   <- cloglog(invcloglog(0) + 0.04)
+
+```
+
+```{r}
+#3. Simulate your discrete-time survival data
+head(Data,n=30)
+tail(Data,n=30)
+# Example for baseline fully discrete effect of time:
+for (t in 1:T) {
+  Data$hcloglog[Data$period==t] <- invcloglog(discretecloglog[t])
+  }
+ 
+
+# Example for conditional logit hazard model with constant effect of time:
+# (The [Data$period==t] on the conditioning variables are probably only
+# necessary if your conditioning variables are *time varying*: if the 
+# values of var1 or var2 were to change over time *within individuals*.)
+for (t in 1:T) {
+  Data$hcloglog2[Data$period==t] <- invcloglog(discretecloglog[t] + var1cloglog*Data$var1[Data$period==t] + var2cloglog*Data$var2[Data$period==t])
+  }
+```
+
+###### Simulate data, and fit a model for parameter recovery
 
 
 
 
+##############
 Fit a new model with separate priors for alpha and beta parameters.
 
 ```{r}
