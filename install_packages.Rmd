@@ -31,7 +31,11 @@ packages for model building in brms.
 
 ```{r}
 install.packages("remotes")
-remotes::install_github("stan-dev/cmdstanr")
+#remotes::install_github("stan-dev/cmdstanr")
+
+# we recommend running this in a fresh R session or restarting your current session
+install.packages("cmdstanr", repos = c('https://stan-dev.r-universe.dev', getOption("repos")))
+
 install_cmdstan(cores=8) 
 check_cmdstan_toolchain() 
 
@@ -69,5 +73,5 @@ use renv() to take a snapshot of installed packages and update the lock.file
 
 ```{r snapshot-renv}
 # take a snapshot and update the lock.file
-# renv::snapshot() # this is only necessary when new packages or installed or packages are updated.
+renv::snapshot() # this is only necessary when new packages or installed or packages are updated.
 ```
