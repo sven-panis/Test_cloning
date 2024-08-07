@@ -159,7 +159,7 @@ here we would normally visualise priors of interest to make a judgment about wha
 would constitute weakly informative priors. 
 
 ```{r b1.general1-prime-vis-priors}
-visualize("normal(0, 0.5)", "normal(0, 1)", "normal(0, 2)", "normal(0,4)", 
+visualize("normal(0, 0.5)", "normal(0, 1)", "normal(0, 2)", "normal(0,4)", "skew_normal(-1,3,-0.5)" ,
           xlim = c(-8, 8))
 ```
 
@@ -344,16 +344,38 @@ Simulate from Normal(0,4) and transform the draws back into the probability metr
 
 ```{r}
 set.seed(11)
+log_odds <- function(p) {
+  log(p / (1 - p))
+}
+odds <- function(p) {
+  p/(1-p)
+}
+cloglog <- function(p){
+  log(-log(1-p))
+}
 
-tibble(log_odds = rnorm(1e6, mean = 0, sd = 4)) %>% 
+inv_cloglog <- function(p){
+  1-exp(-exp(p))
+}
+# logit
+tibble(log_odds = rnorm(1e6, mean = 0, sd = 2)) %>% # first prior used 1. 1.5.  2
   mutate(p = inv_logit_scaled(log_odds)) %>% 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
   scale_y_continuous(NULL, breaks = NULL) +
   theme(panel.grid = element_blank())
+#cloglog
+tibble(cloglog = rnorm(1e6, mean = -1, sd = 1.1)) %>%  # good intercept prior
+  #sd = 1.7 seems good prior with mean 0, flat except for a density peak at 1
+  mutate(p = inv_cloglog(cloglog)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
 ```
 
-This makes no sense for hazard models...
+First make no sense for hazard models...
 
 Compare three standard deviations.
 
@@ -371,9 +393,69 @@ tibble(sd = c(2, 1.5, 1)) %>%
   scale_y_continuous(NULL, breaks = NULL) +
   theme(panel.grid = element_blank()) +
   facet_wrap(~ sd)
+
+tibble(sd = c(1,1.1,1.2,1.3,1.4,1.5)) %>% 
+  mutate(cloglog = map(sd, ~rnorm(1e6, mean = -1, sd = .))) %>% # 1.1 good for intercept intercept
+  unnest(cloglog) %>% 
+  mutate(sd = str_c("sd = ", sd),
+         p  = inv_cloglog(cloglog)) %>% 
+
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ sd)
+
+
 ```
 
 The log-odds Normal(0,1) gently regularizes p towards .5, but still allows for stronger values. This might be a good prior to use for the beta parameters. 
+
+```{r}
+tibble(sigma = c(1,1.1,1.2,1.3,1.4,1.5)) %>% 
+  mutate(cloglog = map(sigma, ~rskew_normal(1e6, -1, sigma = ., alpha = -1))) %>% 
+  unnest(cloglog) %>% 
+  mutate(sigma = str_c("sigma = ", sigma),
+         p  = inv_cloglog(cloglog)) %>% 
+
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ sigma)
+
+tibble(alpha = c(-8,-7,-6, -5,-4,-3)) %>% 
+  mutate(cloglog = map(alpha, ~rskew_normal(1e6, -0.5, sigma = .95, alpha = .))) %>% #!!!!!!! -0.5, .95,-4
+  unnest(cloglog) %>% 
+  mutate(alpah = str_c("alpha = ", alpha),
+         p  = inv_cloglog(cloglog)) %>% 
+
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~ alpha)
+
+
+tibble(alpha = c(-2, -1, 0, 1, 2),
+       sigma = c(1,2,3,4,5)) %>% 
+  mutate(cloglog = map2(sigma, alpha, ~rskew_normal(1e6, -1, sigma = ., alpha = .))) %>% 
+  unnest(cloglog) %>% 
+  mutate(sd = str_c("alpha = ", alpha),
+         p  = inv_cloglog(cloglog)) %>% 
+
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank()) +
+  facet_grid(vars(alpha), vars(sigma))
+
+```
+
+
+
+
+
 
 The alpha parameters tend to drift toward the lower end of the probability range in general (i.e., they are typically below .5 in hazard space, also for RT studies). The log-odds Normal(0, 1.5) prior is nearly flat in probability space, but it does still push the mass away from the boundaries.
 
@@ -387,22 +469,48 @@ log_odds <- function(p) {
 odds <- function(p) {
   p/(1-p)
 }
+cloglog <- function(p){
+  log(-log(1-p))
+}
 
-
+inv_cloglog <- function(p){
+  1-exp(-exp(p))
+}
+# generate draws from U(0,1)
 dat <- 
   tibble(p = runif(1e5, 0, 1)) %>% 
-  mutate(g = log_odds(p)) 
+  mutate(g = log_odds(p),
+         c = cloglog(p)) 
+# display
+dat %>%   
+  ggplot(aes(x = c)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
 
+plot(density(dat$c))
+
+# fit models
 fit11.11 <-
   brm(data = dat,
       family = student,
       g ~ 1,
       chains = 4, cores = 4,
       file = "models/fit11.11")
+
+
+fit11.11b <-
+  brm(data = dat,
+      family = skew_normal(),
+      c ~ 1,
+      chains = 4, cores = 4,
+      file = "models/fit11.11b")
 ```
 
 ```{r}
 print(fit11.11)
+print(fit11.11b)
+pp_check(fit11.11b)
 ```
 
 Now we can reverse the process. Here’s what it would look like if we simulated from the Student  
@@ -410,15 +518,64 @@ t-distribution based on those posterior means and then converted the results int
 
 ```{r}
 set.seed(11)
-
-tibble(g = rt(1e6, df = 7.61) * 1.57) %>% 
+# logit
+tibble(g = rt(1e6, df = 7.61)* 1.57) %>% # simulate from student t
   mutate(p = inv_logit_scaled(g)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+
+# cloglog
+library(sn)
+
+tibble(c = rsn(1e6, xi=-0.59, omega = 1.26, alpha = -4.20) ) %>% # simulate from skew-normal distribution
+
+#tibble(c = rsn(1e6, xi=-1, omega = 1, alpha = -2) ) %>% # simulate from skew-normal distribution
+ 
+   mutate(p = inv_cloglog(c)) %>% 
   
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
   scale_y_continuous(NULL, breaks = NULL) +
   theme(panel.grid = element_blank())
+
+
+
+
+# generate draws from sn
+dat <- 
+  tibble(c1 = rsn(1e5, -1, 1,-1),
+         c2 = rskew_normal(1e5,-1,1,-2)) %>% # use as prior for cloglog intercept !!
+  mutate(p1 = inv_cloglog(c1),
+         p2 = inv_cloglog(c2)) 
+
+plot(density(dat$c2))
+plot(density(dat$p2))
+
+
+# display
+dat %>%   
+  ggplot(aes(x = p1)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+dat %>%   
+  ggplot(aes(x = p2)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+
+
+
 ```
+
+
+
+
 
 Fit a new model with separate priors for alpha and beta parameters.
 
@@ -453,11 +610,17 @@ fixef(b1.general1_prime_prior)[11:12, ] %>%
   mutate_if(is.double, round, digits = 3)
 ```
 
+
+
+
+
+
 Perhaps we can use a similar strategy for hazard models for RT data, as experience suggests that hazard typically stays below .6 in empirical RT data: simulate a large number of draws from various beta(x,y) distributions, convert those draws to the log-odds metric, and fit a skew-normal or skew-t distribution:
 
 ```{r vis-beta-priors}
 visualize("beta(1,2)","beta(1,3)","beta(1,4)", 
           xlim = c(0, 1))
+
 ```
 
 ```{r}
