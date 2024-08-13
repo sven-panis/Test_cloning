@@ -448,6 +448,158 @@ b0gencloglog_pr1 <- brm(formula = formula_gen,
 summary(b0gencloglog_pr1)
 ```
 
+Simulate prior predictive distr
+
+```{r b0gencloglog_pr1_prior}
+plan(multicore)
+b0gencloglog_pr1_prior2 <- brm(formula = formula_gen,
+                data = ptb_data_ind, family = binomial(link = cloglog),
+                prior = prior1,
+                iter = 3000, warmup = 1000, cores = 1, chains = 1,
+                save_pars = save_pars(all=TRUE),
+                sample_prior = "only",
+                seed = 123,
+                file = "models/b0gencloglog_pr1_prior2") 
+
+
+```
+
+```{r}
+summary(b0gencloglog_pr1_prior)
+
+draws <- as_draws_df(b0gencloglog_pr1_prior2) # 500 observations x 15 vars
+
+# marginal posteriror for d6
+draws %>% 
+  pivot_longer(b_d6:b_d15) %>% 
+  
+  ggplot(aes(x = value, y = name, fill = after_stat(x > 0))) +
+  stat_slab() +
+  scale_fill_manual(values = c("blue3", "red3")) +
+  labs(x = "marginal posterior",
+       y = NULL) +
+ theme(panel.grid = element_blank())
+```
+
+# Let's display fitted hazard and survivor functions for b0gencloglog_pr1_prior
+
+First, we can create a table with the posterior means, ignoring uncertainty.
+
+```{r}
+invcloglog <- function(x) { return( 1-(exp(-1*exp(x))) )}
+cloglog    <- function(x) { return( log(-1*log(1-x)) )}
+
+tibble(time  = 6:15,
+       alpha = fixef(b0gencloglog_pr1_prior2)[1:10, 1]) %>% 
+  mutate(clh0 = alpha) %>% # cloglog-hazard
+  mutate(h0 = invcloglog(clh0)) %>% 
+  mutate(s0 = cumprod(1 - h0)) %>% 
+  # this just simplifies the output
+  mutate_if(is.double, round, digits = 4) %>% colMeans()
+```
+
+To make a plot, we go beyond posterior means and reintroduce the uncertainty in the model.
+
+
+```{r}
+nd <-
+  crossing(period = 6:15) %>% 
+  #mutate(condition = rep(c("Neutral","Congruent","Incongruent"),each=10),
+  #       condition = factor(condition)) %>%
+  mutate(d6  = if_else(period == 6, 1, 0),
+         d7  = if_else(period == 7, 1, 0),
+         d8  = if_else(period == 8, 1, 0),
+         d9  = if_else(period == 9, 1, 0),
+         d10 = if_else(period == 10, 1, 0),
+         d11 = if_else(period == 11, 1, 0),
+         d12 = if_else(period == 12, 1, 0),
+         d13 = if_else(period == 13, 1, 0),
+         d14 = if_else(period == 14, 1, 0),
+         d15 = if_else(period == 15, 1, 0))
+
+f <-
+  fitted(b0gencloglog_pr1_prior2,
+         newdata = nd,
+         scale = "linear") %>% 
+  data.frame() %>% 
+  bind_cols(nd) 
+
+f
+```
+
+Now make a plot.
+
+```{r}
+# cloglog(hazard)
+p1 <-
+  f %>% 
+  
+  ggplot(aes(x = period)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = Estimate)) +
+  labs(subtitle = "fitted cloglog(hazard)",
+       y = NULL) +
+  coord_cartesian(ylim = c(-10, 10)) +
+  theme(legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(color = "grey92"),
+        legend.position = "inside",
+        legend.position.inside = c(.1, .74))
+
+# hazard
+p2 <-
+  f %>% 
+  mutate_at(vars(Estimate, Q2.5, Q97.5), .funs = invcloglog) %>% 
+  
+  ggplot(aes(x = period)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = Estimate)) +
+  labs(subtitle = "fitted hazard",
+       y = NULL) +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(legend.position = "none")
+
+# survival
+p3 <-
+  f %>% 
+  mutate_at(vars(Estimate, Q2.5, Q97.5), .funs = invcloglog) %>% 
+#  group_by(condition) %>% 
+  mutate(s       = cumprod(1 - Estimate),
+         s_lower = cumprod(1 - Q2.5),
+         s_upper = cumprod(1 - Q97.5)) %>% 
+  ungroup() %>%
+  #select(period:d15, s:s_upper)
+  
+  ggplot(aes(x = period)) +
+  geom_hline(yintercept = .5, color = "white") +
+  #geom_segment(x = imls[1], xend = imls[1],
+  #             y = -Inf, yend = .5,
+  #             color = "white", linetype = 2) +
+  #geom_segment(x = imls[2], xend = imls[2],
+  #             y = -Inf, yend = .5,
+  #             color = "white", linetype = 2) +
+  geom_ribbon(aes(ymin = s_lower, ymax = s_upper),
+              linewidth = 0, alpha = 1/6) +
+  geom_line(aes(y = s)) + 
+  scale_y_continuous(NULL, breaks = c(0, .5, 1)) +
+  labs(subtitle = "fitted survival probability") +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(legend.position = "none")
+
+
+```
+
+```{r}
+(p1 / p2 / p3 ) &
+  scale_fill_viridis_d(NULL, option = "A", end = .6) &
+  scale_color_viridis_d(NULL, option = "A", end = .6) &
+  scale_x_continuous("Time bin rank", breaks = 6:15, limits = c(6, 15), labels=c(6:15*40)) &
+  theme(panel.grid = element_blank())
+```
+
+
+#######
 ## take a look ##
 
 ```{r b0.general1-chains}
@@ -963,6 +1115,171 @@ model_weights(b0gencloglogPR_pr2, b0gencloglogPR_pr3, b0gencloglogPR_pr4, weight
 model_weights(b0gencloglogPR_pr2, b0gencloglogPR_pr3, b0gencloglogPR_pr4, weights = "stacking") %>% round(digits = 3)
 ```
 
+####### make plot of priors ################
+
+```{r}
+logistic <- function(x) { return( 1/(1+exp(-1*x)) )}
+logit    <- function(x) { return( log(x/(1-x)) )}
+invcloglog <- function(x) { return( 1-(exp(-1*exp(x))) )}
+cloglog    <- function(x) { return( log(-1*log(1-x)) )}
+
+pr1 <- tibble(prior = rnorm(1e6, mean = 0, sd = 4)) %>%  
+  mutate(p = logistic(prior)) %>% 
+  ggplot(aes(x = prior)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  annotate(geom="text", x=-13, y=60000, label="N(0,4)",
+              color="red", size=6) +
+  theme(panel.grid = element_blank())
+
+l1 <- tibble(log_odds = rnorm(1e6, mean = 0, sd = 4)) %>%  
+  mutate(p = logistic(log_odds)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  ggtitle("logistic") +
+  theme(panel.grid = element_blank())
+
+c1 <- tibble(cloglog_prob = rnorm(1e6, mean = 0, sd = 4)) %>% 
+  mutate(p = invcloglog(cloglog_prob)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  ggtitle("inverse cloglog")+
+  theme(panel.grid = element_blank())
+
+
+pr2 <- tibble(prior = rnorm(1e6, mean = 0, sd = 2)) %>%  
+  ggplot(aes(x = prior)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  annotate(geom="text", x=-6, y=60000, label="N(0,2)",
+              color="red", size=6) +
+  theme(panel.grid = element_blank())
+
+l2 <- tibble(log_odds = rnorm(1e6, mean = 0, sd = 2)) %>%  
+  mutate(p = logistic(log_odds)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+c2 <- tibble(cloglog_prob = rnorm(1e6, mean = 0, sd = 2)) %>% 
+  mutate(p = invcloglog(cloglog_prob)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+# flat prior for logistic
+pr3 <- tibble(prior = rt(1e6, df = 7.61)* 1.57) %>%  
+  ggplot(aes(x = prior)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  annotate(geom="text", x=-4, y=100000, label="t(7.61)*1.57",
+              color="red", size=6) +
+  theme(panel.grid = element_blank())
+
+l3 <- tibble(log_odds = rt(1e6, df = 7.61)* 1.57) %>%  
+  mutate(p = logistic(log_odds)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+c3 <- tibble(cloglog_prob = rt(1e6, df = 7.61)* 1.57) %>% 
+  mutate(p = invcloglog(cloglog_prob)) %>% 
+  ggplot(aes(x = p)) +
+  #geom_histogram(bins = 50) +
+  #scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+# prior to .5
+pr4 <- tibble(prior = rnorm(1e6, mean = 0, sd = 1))%>%  
+  ggplot(aes(x = prior)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  annotate(geom="text", x=-3, y=60000, label="N(0,1)",
+              color="red", size=6) +
+  theme(panel.grid = element_blank())
+
+l4 <- tibble(log_odds = rnorm(1e6, mean = 0, sd = 1))%>%  
+  mutate(p = logistic(log_odds)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  geom_vline(xintercept=logistic(0), color="red") +
+  theme(panel.grid = element_blank())
+
+c4 <- tibble(cloglog_prob = rnorm(1e6, mean = 0, sd = 1)) %>% 
+  mutate(p = invcloglog(cloglog_prob)) %>% 
+  ggplot(aes(x = p)) +
+ # geom_histogram(bins = 50) +
+#  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+# flat on cloglog
+pr5 <- tibble(prior = rskew_normal(1e6, mu=-0.59, sigma = 1.26, alpha = -4.20)) %>%  
+  ggplot(aes(x = prior)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  annotate(geom="text", x=-3, y=60000, label="skew_N(-0.59,1.26,-4.20)",
+              color="red", size=6) +
+  theme(panel.grid = element_blank())
+
+l5 <- tibble(log_odds = rskew_normal(1e6, mu=-0.59, sigma = 1.26, alpha = -4.20))%>%  
+  mutate(p = logistic(log_odds)) %>% 
+  ggplot(aes(x = p)) +
+#  geom_histogram(bins = 50) +
+#  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+c5 <- tibble(cloglog_prob = rskew_normal(1e6, mu=-0.59, sigma = 1.26, alpha = -4.20)) %>% 
+  mutate(p = invcloglog(cloglog_prob)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+
+# regu to invcloglog(0)
+pr6 <- tibble(prior = rskew_normal(1e6, mu=-0.2, sigma = .7, alpha = -2.20)) %>%  
+  ggplot(aes(x = prior)) +
+  geom_histogram(bins = 50) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  annotate(geom="text", x=-1, y=60000, label="skew_N(-0.2,.7,-2.20)",
+              color="red", size=6) +
+  theme(panel.grid = element_blank())
+
+l6 <- tibble(log_odds = rskew_normal(1e6, mu=-0.2, sigma = .7, alpha = -2.20))%>%  
+  mutate(p = logistic(log_odds)) %>% 
+  ggplot(aes(x = p)) +
+ # geom_histogram(bins = 50) +
+#  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+c6 <- tibble(cloglog_prob = rskew_normal(1e6, mu=-0.2, sigma = .7, alpha = -2.20)) %>% 
+  mutate(p = invcloglog(cloglog_prob)) %>% 
+  ggplot(aes(x = p)) +
+  geom_histogram(bins = 50) +
+  geom_vline(xintercept=invcloglog(0), color = "red") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+
+
+
+(l1 + pr1 + c1) / (l2 + pr2 + c2) / (l3 + pr3 + c3) / (l4 + pr4 + c4)/ (l5 + pr5 + c5) / (l6 + pr6 + c6)
+
+```
+
+
+```{r}
+ggsave("figures/plot_of_priors.png", width=9, height=10,dpi=300)
+```
+
+The log-odds Normal(0,1) gently regularizes p towards .5, but still allows for stronger values. This might be a good prior to use for the beta parameters. 
+
+
 
 ######################################################
 
@@ -986,7 +1303,7 @@ set.seed(11)
 #  1-exp(-exp(p))
 #}
 # logit
-tibble(log_odds = rnorm(1e6, mean = 0, sd = 1.5)) %>% # N(0,1) regularized gently toward .5
+tibble(log_odds = rnorm(1e6, mean = 0, sd = 1)) %>% # N(0,1) regularized gently toward .5
   mutate(p = logistic(log_odds)) %>% 
   ggplot(aes(x = p)) +
   geom_histogram(bins = 50) +
