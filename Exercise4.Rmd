@@ -112,22 +112,35 @@ for the logit hazard in each bin (between -8 and 8).
 # visualize logit and cloglog links
 
 ```{r}
-prob <- (1:9999)/10000
+probability <- (1:99999)/100000
 logistic <- function(x) { return( 1/(1+exp(-1*x)) )}
 logit    <- function(x) { return( log(x/(1-x)) )}
-invcloglog <- function(x) { return( 1-(exp(-1*exp(x))) )}
+inverse_cloglog <- function(x) { return( 1-(exp(-1*exp(x))) )}
 cloglog    <- function(x) { return( log(-1*log(1-x)) )}
 
-cloglog_prob <- cloglog(prob)
-logit_prob <- logit(prob)
+cloglog_prob <- cloglog(probability)
+logit_prob <- logit(probability)
+dataplot <- cbind(probability,cloglog_prob,logit_prob)
 
-data <- cbind(prob,cloglog_prob,logit_prob)
-data %>% ggplot(aes(x=prob)) +
-  geom_line(aes(y=logit_prob), color="green")+
-  geom_line(aes(y=cloglog_prob), color="red")
-
-logistic(0) # 0.5
-invcloglog(0) # 0.6321
+ggplot() +
+  geom_hline(yintercept=0, color="white") +
+  geom_line(data=dataplot,aes(y=logit_prob,x=probability,colour="logit"),linewidth=1) +
+  geom_line(data=dataplot,aes(y=cloglog_prob,x=probability,colour="cloglog"),linewidth=1) +
+  scale_color_manual(name = "Link function:", values = c("logit" = "darkblue", "cloglog" = "red")) +
+  geom_vline(xintercept = logistic(0), linetype="dotted", size = 0.3) +   
+  geom_vline(xintercept = inverse_cloglog(0), linetype="dotted", size = 0.3) +
+  annotate("text", x = logistic(0)-.02, y = -6, label = "logistic(0) = 0.5", angle = 90) +
+  annotate("text", x = inverse_cloglog(0)+.02, y = -6, label = "inverse_cloglog(0) = 0.6321", angle=90) +
+  scale_x_continuous(n.breaks=10, limits = c(0,1), ) +
+  labs(x = "Probability",
+        y = "logit or cloglog scale") +
+  theme(panel.grid = element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+      #  legend.position="top",
+        legend.text = element_text(size=14),
+        legend.position=c(.2,.75),
+      legend.background = element_rect(fill="white") )
 ```
 
 
@@ -465,9 +478,14 @@ b0gencloglog_pr1_prior2 <- brm(formula = formula_gen,
 ```
 
 ```{r}
-summary(b0gencloglog_pr1_prior)
+summary(b0gencloglog_pr1_prior2)
+
+pp_check(b0gencloglog_pr1_prior2, type="error_hist")
+pp_check(b0gencloglog_pr1_prior2, type="bars")
+
 
 draws <- as_draws_df(b0gencloglog_pr1_prior2) # 500 observations x 15 vars
+draws2 <- prior_draws(b0gencloglog_pr1_prior2, "b_d6")
 
 # marginal posteriror for d6
 draws %>% 
@@ -479,6 +497,12 @@ draws %>%
   labs(x = "marginal posterior",
        y = NULL) +
  theme(panel.grid = element_blank())
+
+
+test <- posterior_predict(b0gencloglog_pr1_prior2)
+test[1:10,1:10]
+means <- rowMeans(test)
+mean(means)
 ```
 
 # Let's display fitted hazard and survivor functions for b0gencloglog_pr1_prior
@@ -1311,7 +1335,7 @@ tibble(log_odds = rnorm(1e6, mean = 0, sd = 1)) %>% # N(0,1) regularized gently 
   theme(panel.grid = element_blank())
 
 #cloglog
-tibble(clog_log = rnorm(1e6, mean = -1, sd = 1.1)) %>%  
+tibble(clog_log = rnorm(1e6, mean = -1.4, sd = 1.2)) %>%  
   # good intercept prior : -1, 1.1/-1.4,1/-1.4,1.3/-1.4,1.2
   # good beta prior : 
   mutate(p = invcloglog(clog_log)) %>% 
@@ -1529,7 +1553,7 @@ tibble(g = rlst(1e6, df = 5.98, mu=-0.45 , sigma= 1.05)) %>% # simulate from stu
 # cloglog
 library(sn)
 
-tibble(c = rskew_normal(1e6, mu=-0.59, sigma = 1.26, alpha = -4.20) ) %>% # simulate from skew-normal #distribution !!!!!!!! for intercept 
+tibble(c = rskew_normal(1e8, mu=-0.59, sigma = 1.26, alpha = -4.20) ) %>% # simulate from skew-normal #distribution !!!!!!!! for intercept 
 #  !!!!!!!!!
 
 #tibble(c = rsn(1e6, xi=-1, omega = 1, alpha = -2) ) %>% # simulate from skew-normal distribution
